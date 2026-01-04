@@ -1,4 +1,4 @@
-# Frappe CRM & ERPNext Integration - Complete Documentation
+# Frappe CRM SLA Documentation
 
 ## Table of Contents
 1. [Project Overview](#project-overview)
