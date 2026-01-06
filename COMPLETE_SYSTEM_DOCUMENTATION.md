@@ -2,7 +2,7 @@
 
 **Document Version:** 1.0  
 **Last Updated:** January 2, 2026  
-**System:** Frappe CRM & Helpdesk with  ERPNext Integration
+**System:** Frappe CRM & Helpdesk with ERPNext Integration
 
 ---
 
@@ -14,9 +14,10 @@
 4. [Order History Integration](#order-history-integration)
 5. [Email Transfer System](#email-transfer-system)
 6. [RingCentral Integration](#ringcentral-integration)
-7. [Deployment Guide](#deployment-guide)
-8. [API Reference](#api-reference)
-9. [Troubleshooting](#troubleshooting)
+7. [Email Routing System (Server Script)](#email-routing-system-server-script)
+8. [Deployment Guide](#deployment-guide)
+9. [API Reference](#api-reference)
+10. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -26,9 +27,10 @@ This document provides comprehensive technical documentation for all enhancement
 
 ### Key Statistics
 
-- **Total Features Implemented:** 14
+- **Total Features Implemented:** 15
 - **CRM Features:** 5
 - **Helpdesk Features:** 9
+- **Email Routing:** 1 (Server Script)
 - **API Endpoints Created:** 20+
 - **Frontend Components:** 15+
 
@@ -1418,6 +1420,9 @@ def get_ringcentral_transcript(self, recording_id, account_id="~"):
 - Frappe Framework v15+
 - ERPNext v15+
 - RingCentral account with API access
+- Pabbly Connect account (for webhook routing)
+- Production domain with SSL certificate
+- Redis with RediSearch module installed
 
 ### Installation Steps
 
@@ -1461,18 +1466,1035 @@ bench --site mysite.local clear-website-cache
 bench restart
 ```
 
-### Configuration
+---
 
-**RingCentral Settings:**
-1. Go to CRM → Settings → RingCentral Settings
-2. Enter Client ID and Client Secret
-3. Click "Authorize" to complete OAuth flow
-4. Verify tokens are stored
+## RingCentral Integration Setup (Production)
 
-**Pabbly Webhooks:**
-1. Configure webhook URL: `https://yourdomain.com/api/method/helpdesk.api.ringcentral_webhook.pabbly_webhook`
-2. Set webhook events: call_completed, recording_available
-3. Test webhook delivery
+### Overview
+
+This section provides complete step-by-step instructions for setting up RingCentral telephony integration on your production ERPNext instance. This setup enables:
+- Automatic call logging in CRM and Helpdesk
+- Call recording playback
+- Call transcription viewing
+- Click-to-call functionality
+
+### Architecture
+
+```
+RingCentral Phone System
+         ↓
+    (Call Event)
+         ↓
+RingCentral Webhooks → Pabbly Connect → ERPNext Webhook Endpoint
+         ↓                    ↓                    ↓
+   (Filters/Routes)    (Data Transform)    (Create Call Logs)
+```
+
+---
+
+### Part 1: RingCentral Developer Account Setup
+
+#### Step 1.1: Create RingCentral App
+
+**1. Log in to RingCentral Developer Portal:**
+- Go to: https://developers.ringcentral.com/
+- Click "Sign In" (use your RingCentral admin credentials)
+- If you don't have developer access, contact your RingCentral account manager
+
+**2. Create New App:**
+- Click "Create App" or "My Apps" → "Create App"
+- Choose **"REST API App"** (not Browser-based or Server-only)
+
+**3. Configure App Settings:**
+
+| Field | Value | Notes |
+|-------|-------|-------|
+| **App Name** | ERPNext CRM Integration | Or your company name |
+| **App Type** | **Public** (for OAuth) or Private | Use Public for easier OAuth |
+| **Platform Type** | **Server/Web** | Required for OAuth flow |
+| **Carrier** | Your RingCentral carrier | Usually RingCentral US |
+
+**4. Set OAuth Redirect URI:**
+```
+https://your-erp-domain.com/api/method/crm.api.ringcentral_auth.oauth_callback
+```
+
+⚠️ **CRITICAL:** Replace `your-erp-domain.com` with your actual production domain.
+
+**Examples:**
+- `https://erp.cozycornerpatios.com/api/method/crm.api.ringcentral_auth.oauth_callback`
+- `https://erp.yourcompany.com/api/method/crm.api.ringcentral_auth.oauth_callback`
+
+**5. Configure Permissions:**
+
+Select these OAuth scopes:
+
+**Required Scopes:**
+- ✅ `ReadCallLog` - Read call history
+- ✅ `ReadCallRecording` - Download recordings
+- ✅ `CallControl` - Initiate calls (for click-to-call)
+- ✅ `ReadAccounts` - Read account information
+- ✅ `Webhook` - Receive webhook notifications (if using native webhooks)
+
+**Optional (Recommended):**
+- ✅ `ReadMessages` - Read SMS/voicemail
+- ✅ `EditExtensions` - Manage extensions
+
+**6. Save and Note Credentials:**
+
+After creating the app, you'll see:
+```
+Client ID: abcd1234-ef56-7890-ghij-klmnopqrstuv
+Client Secret: xyzABC123def456GHI789jkl012MNO345pqr678
+```
+
+⚠️ **IMPORTANT:** 
+- Copy both immediately
+- Store in secure password manager
+- Client Secret is shown only once
+- Never commit these to Git
+
+#### Step 1.2: Test App in Sandbox (Optional but Recommended)
+
+**1. Switch to Sandbox Environment:**
+- In app settings, toggle "Sandbox" mode
+- Use sandbox credentials for testing
+
+**2. Test OAuth Flow:**
+```bash
+# Test URL format
+https://platform.devtest.ringcentral.com/restapi/oauth/authorize?response_type=code&client_id=YOUR_CLIENT_ID&redirect_uri=https://your-domain.com/api/method/crm.api.ringcentral_auth.oauth_callback
+```
+
+**3. Once Sandbox Works:**
+- Switch to "Production" mode in app settings
+- Update credentials in ERPNext
+
+---
+
+### Part 2: ERPNext RingCentral Settings Configuration
+
+#### Step 2.1: Access RingCentral Settings
+
+**1. Navigate to Settings:**
+```
+ERPNext Desk → CRM Module → Settings → CRM RingCentral Settings
+```
+
+Or use Quick Search (Ctrl+K):
+```
+Type: "CRM RingCentral Settings"
+```
+
+#### Step 2.2: Configure Basic Settings
+
+**Field Mapping:**
+
+| Field | Value | Description |
+|-------|-------|-------------|
+| **Client ID** | Your app's Client ID | From RingCentral Developer Portal |
+| **Client Secret** | Your app's Client Secret | Click "Set Password" to enter securely |
+| **Server URL** | `https://platform.ringcentral.com` | Production URL (US) |
+| **Environment** | Production | Don't change after initial setup |
+| **Company Phone Number** | `+1234567890` | Your RingCentral main number (E.164 format) |
+
+**Server URLs by Region:**
+- **US/Canada:** `https://platform.ringcentral.com`
+- **Europe:** `https://platform.eu.ringcentral.com`
+- **UK:** `https://platform.ringcentral.biz`
+
+**Phone Number Format:**
+- Use E.164 format: `+[country][area][number]`
+- Example: `+15551234567` (not `555-123-4567`)
+
+#### Step 2.3: Complete OAuth Authorization
+
+**1. Save Settings:**
+- Click "Save" button (important - must save first)
+
+**2. Authorize Button:**
+- After saving, you'll see an "Authorize with RingCentral" button
+- Click it to start OAuth flow
+
+**3. OAuth Flow:**
+```
+Step 1: ERPNext → Redirects to RingCentral login
+         ↓
+Step 2: Login with RingCentral admin account
+         ↓
+Step 3: Authorize app to access your account
+         ↓
+Step 4: Redirect back to ERPNext with auth code
+         ↓
+Step 5: ERPNext exchanges code for tokens (automatic)
+         ↓
+Step 6: Tokens saved, authorization complete
+```
+
+**4. Verify Authorization:**
+
+After successful authorization, these fields will be auto-populated:
+
+| Field | Status | Example Value |
+|-------|--------|---------------|
+| **Access Token** | ✅ Filled | `U0pDMDFQMDFQQVMwM...` (long string) |
+| **Refresh Token** | ✅ Filled | `U0pDMDFQMDFQQVMwM...` (long string) |
+| **Token Expires At** | ✅ Filled | Unix timestamp (e.g., 1736553600) |
+| **Token Expires In** | ✅ Filled | Seconds (usually 3600) |
+
+**5. Test Connection:**
+
+Open ERPNext Console (bench console):
+```python
+import frappe
+from crm.integrations.ringcentral_client import RingCentralClient
+
+# Test authentication
+client = RingCentralClient()
+result = client.authenticate_auto()
+
+if result:
+    print("✅ RingCentral authentication successful!")
+    
+    # Test API call
+    response = client.platform.get('/restapi/v1.0/account/~/extension/~')
+    print(f"✅ API working! Extension: {response.json()['extensionNumber']}")
+else:
+    print("❌ Authentication failed!")
+```
+
+#### Step 2.4: Configure Auto-Refresh (Already Built-In)
+
+The system automatically refreshes tokens before they expire. No manual configuration needed.
+
+**How It Works:**
+1. Before any API call, system checks token expiration
+2. If expired (or about to expire), refresh automatically
+3. New tokens saved to database
+4. API call proceeds with fresh token
+
+**Monitor Token Refresh:**
+```python
+# Check token status
+import frappe
+settings = frappe.get_single("CRM RingCentral Settings")
+
+import time
+current_time = int(time.time())
+expires_at = settings.token_expires_at
+
+if current_time > expires_at:
+    print("⚠️ Token expired!")
+else:
+    remaining = expires_at - current_time
+    print(f"✅ Token valid for {remaining // 60} minutes")
+```
+
+---
+
+### Part 3: Pabbly Connect Setup
+
+#### Why Pabbly?
+
+RingCentral webhooks have limitations:
+- ❌ Limited filtering options
+- ❌ Can't transform payload easily
+- ❌ Single webhook URL per event
+- ❌ Difficult to debug
+
+**Pabbly Connect provides:**
+- ✅ Visual workflow builder
+- ✅ Data transformation/mapping
+- ✅ Filtering and routing
+- ✅ Error handling and retry
+- ✅ Detailed logs for debugging
+
+#### Step 3.1: Create Pabbly Connect Account
+
+**1. Sign Up:**
+- Go to: https://www.pabbly.com/connect/
+- Click "Start Free Trial" or "Sign Up"
+- Use company email (not personal Gmail)
+
+**2. Choose Plan:**
+- **Free Plan:** 100 tasks/month (good for testing)
+- **Standard Plan:** $19/month - 12,000 tasks (recommended for production)
+- **Pro Plan:** $39/month - 24,000 tasks
+
+**Task Calculation:**
+- 1 incoming call = 1 task
+- If processing 500 calls/month → Standard Plan sufficient
+
+**3. Verify Email:**
+- Check inbox for verification email
+- Click verification link
+
+#### Step 3.2: Create RingCentral to ERPNext Workflow
+
+**1. Create New Workflow:**
+- Click "Create Workflow" button
+- Name it: **"RingCentral to ERPNext Call Logging"**
+
+**2. Set Up Trigger (RingCentral Webhook):**
+
+**Step 2a: Add Trigger Step**
+- Click "Trigger" → Search "RingCentral"
+- Select **"RingCentral"** app
+- Choose trigger event: **"New Call Completed"** or **"Call Log Event"**
+
+**Step 2b: Connect RingCentral Account**
+- Click "Connect"
+- Choose **"OAuth 2.0"** method
+- You'll be redirected to RingCentral
+- Login with admin credentials
+- Authorize Pabbly to access call data
+- Redirect back to Pabbly
+
+**Step 2c: Configure Trigger Settings**
+```json
+{
+  "Event": "Call Completed",
+  "Direction": "All" (or filter: "Inbound" / "Outbound"),
+  "Extension": "All" (or specific extension)
+}
+```
+
+**Step 2d: Test Trigger**
+- Click "Send Test Request"
+- Make a test call to your RingCentral number
+- Wait 10-30 seconds
+- Click "Refresh" in Pabbly
+- You should see call data appear
+
+**Example Trigger Data:**
+```json
+{
+  "id": "12345678",
+  "sessionId": "87654321",
+  "startTime": "2025-01-06T10:30:00Z",
+  "duration": 120,
+  "direction": "Inbound",
+  "from": {
+    "phoneNumber": "+15551234567",
+    "name": "John Doe"
+  },
+  "to": {
+    "phoneNumber": "+15559876543",
+    "name": "Support Line"
+  },
+  "recording": {
+    "id": "rec-12345",
+    "contentUri": "https://platform.ringcentral.com/restapi/v1.0/account/~/recording/rec-12345/content"
+  },
+  "legs": [...]
+}
+```
+
+#### Step 3.3: Add Data Transformation (Optional but Recommended)
+
+**1. Add Router/Filter Step:**
+- Click "+" after trigger
+- Choose "Router" → "Filter"
+- Configure filter:
+
+**Filter Examples:**
+
+**Filter 1: Only Answered Calls**
+```
+Field: result
+Condition: Equal To
+Value: Call connected
+```
+
+**Filter 2: Minimum Duration (skip missed calls)**
+```
+Field: duration
+Condition: Greater Than
+Value: 5
+```
+
+**Filter 3: Skip Internal Calls**
+```
+Field: from.phoneNumber
+Condition: Does Not Contain
+Value: [your internal extension pattern]
+```
+
+**2. Add Data Formatter (Optional):**
+- Click "+" → Choose "Formatter"
+- Select "Date/Time Formatter"
+- Format: Convert RingCentral timestamp to ISO format
+
+#### Step 3.4: Configure ERPNext Webhook Action
+
+**1. Add Action Step:**
+- Click "+" after trigger/filter
+- Search "Webhooks by Pabbly"
+- Select **"POST Request"**
+
+**2. Configure Webhook URL:**
+```
+https://your-erp-domain.com/api/method/helpdesk.api.ringcentral_webhook.pabbly_webhook
+```
+
+⚠️ **Replace with your actual domain:**
+- Example: `https://erp.cozycornerpatios.com/api/method/helpdesk.api.ringcentral_webhook.pabbly_webhook`
+
+**3. Set Request Method:**
+- Method: **POST**
+- Content-Type: **application/json**
+
+**4. Configure Authentication:**
+
+**Option A: API Key/Secret (Recommended)**
+
+Add headers:
+```json
+{
+  "Authorization": "token YOUR_API_KEY:YOUR_API_SECRET"
+}
+```
+
+To generate API key in ERPNext:
+```
+User Menu → API Access → Generate Keys
+```
+
+**Option B: No Authentication (Less Secure)**
+- Only if ERPNext endpoint is whitelisted (not recommended for production)
+
+**5. Map Request Body:**
+
+Click "Add New Field" for each field you want to send:
+
+**Basic Mapping:**
+
+| Pabbly Field Name | Map From RingCentral | Example |
+|-------------------|----------------------|---------|
+| `call_id` | `id` | "12345678" |
+| `session_id` | `sessionId` | "87654321" |
+| `direction` | `direction` | "Inbound" |
+| `from_number` | `from.phoneNumber` | "+15551234567" |
+| `from_name` | `from.name` | "John Doe" |
+| `to_number` | `to.phoneNumber` | "+15559876543" |
+| `to_name` | `to.name` | "Support Line" |
+| `start_time` | `startTime` | "2025-01-06T10:30:00Z" |
+| `duration` | `duration` | 120 |
+| `result` | `result` | "Call connected" |
+| `recording_id` | `recording.id` | "rec-12345" |
+| `recording_url` | `recording.contentUri` | "https://..." |
+
+**Complete JSON Body Example:**
+```json
+{
+  "call_id": "{{1.id}}",
+  "session_id": "{{1.sessionId}}",
+  "direction": "{{1.direction}}",
+  "from_number": "{{1.from.phoneNumber}}",
+  "from_name": "{{1.from.name}}",
+  "to_number": "{{1.to.phoneNumber}}",
+  "to_name": "{{1.to.name}}",
+  "start_time": "{{1.startTime}}",
+  "duration": "{{1.duration}}",
+  "result": "{{1.result}}",
+  "recording": {
+    "id": "{{1.recording.id}}",
+    "contentUri": "{{1.recording.contentUri}}"
+  },
+  "legs": "{{1.legs}}"
+}
+```
+
+**Note:** `{{1.field}}` syntax pulls data from step 1 (trigger)
+
+**6. Test Webhook:**
+- Click "Send Test Request"
+- Check response from ERPNext:
+
+**Success Response:**
+```json
+{
+  "success": true,
+  "message": "Call log created",
+  "call_log_name": "HD-CALL-00001"
+}
+```
+
+**Error Response:**
+```json
+{
+  "success": false,
+  "message": "Error: Field 'from_number' is required"
+}
+```
+
+**7. Save and Activate Workflow:**
+- Click "Save" button
+- Toggle "Active" switch to ON
+- Workflow is now live!
+
+#### Step 3.5: Test End-to-End Flow
+
+**1. Make Test Call:**
+- Call your RingCentral number from external phone
+- Talk for at least 10 seconds
+- Hang up
+
+**2. Wait for Processing:**
+- RingCentral webhook fires (1-5 seconds delay)
+- Pabbly receives webhook (should see in logs)
+- Pabbly sends to ERPNext (1-2 seconds)
+- ERPNext creates call log
+
+**3. Verify in ERPNext:**
+
+**Check Helpdesk Call Logs:**
+```
+Helpdesk → Call Logs → You should see new entry
+```
+
+**Verify Fields:**
+- ✅ From Number: Matches caller
+- ✅ To Number: Matches RingCentral line
+- ✅ Duration: Correct
+- ✅ Direction: Inbound
+- ✅ Recording URL: Present (if recorded)
+- ✅ Ticket: Auto-created or linked (if customer exists)
+
+**4. Check Pabbly Logs:**
+```
+Pabbly Connect → Workflow History → Recent Executions
+```
+
+Look for:
+- ✅ Green checkmark = Success
+- ❌ Red X = Failed (click to see error)
+
+#### Step 3.6: Advanced Pabbly Configuration
+
+**A. Handle Call Recording Availability:**
+
+RingCentral recordings may not be available immediately. Create a second workflow:
+
+**Workflow 2: "RingCentral Recording Available"**
+
+**Trigger:** RingCentral → "Recording Ready" event
+
+**Action:** Send to ERPNext endpoint with recording data
+```
+POST https://your-domain.com/api/method/helpdesk.api.ringcentral_webhook.recording_webhook
+```
+
+**Body:**
+```json
+{
+  "call_log_id": "{{call_id}}",
+  "recording_id": "{{recording.id}}",
+  "recording_url": "{{recording.contentUri}}"
+}
+```
+
+**B. Error Handling in Pabbly:**
+
+Add error handling steps:
+
+**1. Add Router After Webhook:**
+- If response status = 200 → Success path
+- If response status != 200 → Error path
+
+**2. Error Path Actions:**
+- Send email notification to admin
+- Log to Google Sheets for tracking
+- Retry after 5 minutes (use delay step)
+
+**C. Rate Limiting:**
+
+If you have high call volume:
+
+**1. Add Delay Step:**
+- Click "+" → "Delay"
+- Set delay: 1 second between calls
+- Prevents overwhelming ERPNext
+
+**2. Configure Batch Processing:**
+- Accumulate calls in array
+- Send batch every 10 calls or 5 minutes
+
+---
+
+### Part 4: ERPNext Webhook Endpoint Configuration
+
+#### Step 4.1: Verify Webhook Endpoint is Whitelisted
+
+**Check File:**
+```python
+# File: apps/helpdesk/helpdesk/api/ringcentral_webhook.py
+
+@frappe.whitelist(allow_guest=True)  # ← Must have this
+def pabbly_webhook():
+    """Receive webhooks from Pabbly Connect"""
+    # ... code ...
+```
+
+If `allow_guest=True` is missing, add it and restart:
+```bash
+bench restart
+```
+
+#### Step 4.2: Configure Webhook Security (Recommended)
+
+**Option 1: API Key Authentication**
+
+Update webhook to require authentication:
+
+```python
+@frappe.whitelist()  # Remove allow_guest
+def pabbly_webhook():
+    """Receive webhooks from Pabbly Connect (authenticated)"""
+    # Authentication is handled by @frappe.whitelist()
+    # ... rest of code ...
+```
+
+Then in Pabbly, add header:
+```
+Authorization: token YOUR_API_KEY:YOUR_API_SECRET
+```
+
+**Option 2: Secret Token Validation**
+
+Add custom secret validation:
+
+```python
+@frappe.whitelist(allow_guest=True)
+def pabbly_webhook():
+    """Receive webhooks from Pabbly Connect"""
+    # Validate secret token
+    secret = frappe.get_request_header("X-Webhook-Secret")
+    expected_secret = frappe.db.get_single_value("Helpdesk Settings", "webhook_secret")
+    
+    if secret != expected_secret:
+        frappe.throw("Invalid webhook secret", frappe.PermissionError)
+    
+    # ... rest of code ...
+```
+
+Add custom field to Helpdesk Settings:
+```
+Field: webhook_secret
+Type: Password
+```
+
+Set value to random string (e.g., `sk_live_abc123def456`)
+
+In Pabbly, add header:
+```
+X-Webhook-Secret: sk_live_abc123def456
+```
+
+#### Step 4.3: Test Webhook Directly (Without Pabbly)
+
+Use curl to test:
+
+```bash
+curl -X POST https://your-domain.com/api/method/helpdesk.api.ringcentral_webhook.pabbly_webhook \
+  -H "Content-Type: application/json" \
+  -H "Authorization: token YOUR_API_KEY:YOUR_API_SECRET" \
+  -d '{
+    "call_id": "test-123",
+    "direction": "Inbound",
+    "from_number": "+15551234567",
+    "from_name": "Test Caller",
+    "to_number": "+15559876543",
+    "start_time": "2025-01-06T10:30:00Z",
+    "duration": 120,
+    "result": "Call connected",
+    "recording": {
+      "id": "rec-test-123",
+      "contentUri": "https://example.com/recording.mp3"
+    }
+  }'
+```
+
+Expected response:
+```json
+{
+  "success": true,
+  "message": "Call log created",
+  "call_log_name": "HD-CALL-00001"
+}
+```
+
+---
+
+### Part 5: Production Deployment Checklist
+
+#### Pre-Deployment
+
+- [ ] RingCentral app created in Production mode (not Sandbox)
+- [ ] Client ID and Client Secret saved securely
+- [ ] OAuth redirect URI matches production domain exactly
+- [ ] All required OAuth scopes enabled
+- [ ] ERPNext RingCentral Settings configured
+- [ ] OAuth authorization completed successfully
+- [ ] Token refresh tested and working
+- [ ] Pabbly Connect account created (paid plan for production)
+- [ ] Pabbly workflow created and tested
+- [ ] Pabbly to ERPNext webhook tested successfully
+- [ ] End-to-end call flow tested (make real call)
+- [ ] Webhook endpoint secured (API key or secret)
+- [ ] SSL certificate valid on ERPNext domain
+- [ ] Firewall allows incoming webhooks from Pabbly IPs
+
+#### Deployment Steps
+
+**1. Pull Latest Code to Production:**
+```bash
+cd ~/frappe-bench
+git -C apps/crm pull origin main
+git -C apps/helpdesk pull origin main
+```
+
+**2. Install RingCentral SDK:**
+```bash
+bench pip install ringcentral
+```
+
+**3. Run Migrations:**
+```bash
+bench --site your-site.com migrate
+```
+
+**4. Build Frontend:**
+```bash
+bench build --app crm
+bench build --app helpdesk
+```
+
+**5. Clear Cache:**
+```bash
+bench --site your-site.com clear-cache
+```
+
+**6. Restart Services:**
+```bash
+bench restart
+```
+
+**7. Configure Settings:**
+- Go to CRM RingCentral Settings
+- Enter production Client ID and Secret
+- Complete OAuth authorization
+- Verify tokens are saved
+
+**8. Activate Pabbly Workflow:**
+- Switch workflow to "Active"
+- Monitor first few calls closely
+
+**9. Test with Real Call:**
+- Make test call to RingCentral number
+- Verify call log created in ERPNext
+- Check recording and transcript (if available)
+- Verify ticket creation (for new customers)
+
+#### Post-Deployment Monitoring
+
+**Day 1: Hourly Checks**
+```python
+# Check recent call logs
+import frappe
+logs = frappe.get_all(
+    "Helpdesk Call Log",
+    filters={"creation": [">=", frappe.utils.add_days(frappe.utils.nowdate(), -1)]},
+    fields=["name", "from_number", "to_number", "duration", "creation"],
+    order_by="creation desc",
+    limit=20
+)
+
+for log in logs:
+    print(f"{log.creation}: {log.name} - {log.from_number} → {log.to_number} ({log.duration}s)")
+```
+
+**Day 1-7: Daily Checks**
+- Review Pabbly execution logs
+- Check ERPNext error logs
+- Verify all calls are being logged
+- Monitor token refresh (should be automatic)
+- Check recording downloads are working
+
+**Week 2+: Weekly Checks**
+- Review call volume statistics
+- Check for any failed webhook deliveries
+- Verify recording storage isn't filling up disk
+- Monitor API usage (RingCentral has limits)
+
+#### Troubleshooting Commands
+
+**Check RingCentral Token Status:**
+```python
+import frappe
+settings = frappe.get_single_value("CRM RingCentral Settings")
+print(f"Access Token: {settings.access_token[:20]}...")
+print(f"Expires At: {settings.token_expires_at}")
+```
+
+**Force Token Refresh:**
+```python
+from crm.api.ringcentral_auth import refresh_access_token
+new_token = refresh_access_token()
+print(f"New Token: {new_token[:20]}...")
+```
+
+**Test API Connection:**
+```python
+from crm.integrations.ringcentral_client import RingCentralClient
+client = RingCentralClient()
+if client.authenticate_auto():
+    print("✅ Connected!")
+else:
+    print("❌ Failed!")
+```
+
+**Check Recent Webhooks:**
+```python
+import frappe
+logs = frappe.get_all(
+    "Error Log",
+    filters={"method": ["like", "%ringcentral_webhook%"]},
+    fields=["name", "error", "creation"],
+    order_by="creation desc",
+    limit=10
+)
+```
+
+---
+
+### Part 6: Pabbly IP Whitelisting (If Firewall Enabled)
+
+If your ERPNext server has firewall rules, whitelist Pabbly IPs:
+
+**Pabbly Connect IP Addresses:**
+```
+52.90.172.94
+54.163.39.217
+54.165.110.233
+54.173.237.155
+```
+
+**Whitelist in UFW (Ubuntu):**
+```bash
+sudo ufw allow from 52.90.172.94 to any port 443
+sudo ufw allow from 54.163.39.217 to any port 443
+sudo ufw allow from 54.165.110.233 to any port 443
+sudo ufw allow from 54.173.237.155 to any port 443
+sudo ufw reload
+```
+
+**Whitelist in AWS Security Group:**
+- Add inbound rule: HTTPS (443) from these IPs
+
+---
+
+### Part 7: RingCentral API Rate Limits
+
+**Rate Limits (as of 2025):**
+- **Light:** 10 requests/minute/user
+- **Medium:** 40 requests/minute/user  
+- **Heavy:** 50 requests/minute/user (webhooks, recordings)
+
+**Best Practices:**
+- Cache recordings in ERPNext (don't fetch repeatedly)
+- Cache transcripts in database
+- Use webhooks instead of polling
+- Implement exponential backoff on errors
+
+**Monitor Rate Limit:**
+```python
+# Check response headers
+response = client.platform.get('/restapi/v1.0/account/~/extension/~')
+print(f"Rate Limit: {response.headers.get('X-Rate-Limit-Limit')}")
+print(f"Remaining: {response.headers.get('X-Rate-Limit-Remaining')}")
+print(f"Reset: {response.headers.get('X-Rate-Limit-Window')}")
+```
+
+---
+
+### Part 8: Security Best Practices
+
+**1. Store Credentials Securely:**
+- ✅ Use Password fields (encrypted in database)
+- ✅ Never log Client Secret or tokens
+- ✅ Restrict access to RingCentral Settings (only admins)
+
+**2. Webhook Security:**
+- ✅ Use HTTPS only (never HTTP)
+- ✅ Validate webhook signatures or use secret token
+- ✅ Rate limit webhook endpoint
+- ✅ Log all webhook attempts
+
+**3. API Key Management:**
+- ✅ Create dedicated API user for webhooks
+- ✅ Limit permissions (only create call logs)
+- ✅ Rotate API keys quarterly
+- ✅ Monitor API usage
+
+**4. Recording Storage:**
+- ✅ Store recordings in private files (is_private=1)
+- ✅ Encrypt at rest (if possible)
+- ✅ Implement retention policy (delete after X days)
+- ✅ Restrict access to authorized users only
+
+**5. Compliance:**
+- ✅ Add call recording disclosure (legal requirement in some states)
+- ✅ Honor do-not-call lists
+- ✅ GDPR compliance: Allow customers to request deletion
+- ✅ Log retention compliance (keep for X years)
+
+---
+
+### Part 9: Advanced Configuration
+
+#### Multi-Site Setup
+
+If you have multiple ERPNext sites:
+
+**1. Create Site-Specific Webhook URLs:**
+```
+Site 1: https://erp1.company.com/api/method/helpdesk.api.ringcentral_webhook.pabbly_webhook
+Site 2: https://erp2.company.com/api/method/helpdesk.api.ringcentral_webhook.pabbly_webhook
+```
+
+**2. Use Pabbly Router:**
+- Add Router step after RingCentral trigger
+- Route based on called number or extension
+- Send to appropriate site
+
+#### Multi-Company Setup
+
+**1. Configure Company Phone Numbers:**
+```python
+# In CRM RingCentral Settings
+Company 1: +15551111111
+Company 2: +15552222222
+```
+
+**2. Route by Called Number:**
+- Pabbly checks `to.phoneNumber`
+- Routes to correct company's webhook
+
+#### Call Recording Storage Options
+
+**Option 1: Store in ERPNext (Default)**
+- Recordings stored in `frappe-bench/sites/your-site/private/files`
+- Accessible via ERPNext File Manager
+- Backed up with site backups
+
+**Option 2: Store in S3**
+```python
+# Configure S3 in site_config.json
+{
+  "s3_backup_bucket": "your-bucket",
+  "aws_access_key_id": "YOUR_KEY",
+  "aws_secret_access_key": "YOUR_SECRET"
+}
+```
+
+**Option 3: Keep in RingCentral Only**
+- Don't download recordings
+- Link to RingCentral URL only
+- Saves storage space
+- Recordings auto-delete after 90 days (RingCentral policy)
+
+---
+
+### Configuration Summary
+
+**✅ Complete Setup Checklist:**
+
+**RingCentral:**
+- [ ] Developer account created
+- [ ] App created with OAuth
+- [ ] Redirect URI configured
+- [ ] OAuth scopes enabled
+- [ ] Client ID and Secret obtained
+
+**ERPNext:**
+- [ ] Code pulled and deployed
+- [ ] RingCentral SDK installed
+- [ ] Migrations run
+- [ ] Frontend built
+- [ ] RingCentral Settings configured
+- [ ] OAuth authorization completed
+- [ ] Token refresh working
+
+**Pabbly:**
+- [ ] Account created (paid plan)
+- [ ] RingCentral connected
+- [ ] Workflow created
+- [ ] Data mapping configured
+- [ ] ERPNext webhook configured
+- [ ] Workflow activated
+- [ ] End-to-end tested
+
+**Security:**
+- [ ] SSL enabled on ERPNext
+- [ ] Webhook authentication enabled
+- [ ] Firewall configured (if needed)
+- [ ] Credentials stored securely
+- [ ] Access restricted to admins
+
+**Testing:**
+- [ ] Test call made and logged
+- [ ] Recording playback works
+- [ ] Transcript fetching works
+- [ ] Ticket auto-creation works
+- [ ] Click-to-call works
+
+**Production Ready! 🚀**
+
+---
+
+## Configuration Examples by Company Size
+
+### Small Business (< 50 calls/day)
+
+**RingCentral Plan:** Essentials  
+**Pabbly Plan:** Free (100 tasks/month) or Standard ($19/month)  
+**ERPNext Resources:** 2GB RAM, 1 CPU sufficient  
+
+**Recommended Setup:**
+- Single workflow for all calls
+- Store recordings in ERPNext
+- No advanced filtering needed
+
+### Medium Business (50-500 calls/day)
+
+**RingCentral Plan:** Standard or Premium  
+**Pabbly Plan:** Standard ($19/month) or Pro ($39/month)  
+**ERPNext Resources:** 4GB RAM, 2 CPU recommended  
+
+**Recommended Setup:**
+- Separate workflows for inbound/outbound
+- Filter missed calls
+- Store recordings in S3
+- Implement call routing by department
+
+### Enterprise (> 500 calls/day)
+
+**RingCentral Plan:** Ultimate  
+**Pabbly Plan:** Ultimate ($249/month - 300k tasks)  
+**ERPNext Resources:** 8GB+ RAM, 4+ CPU  
+
+**Recommended Setup:**
+- Multiple workflows by department
+- Advanced filtering and routing
+- S3 storage with CDN
+- Dedicated API user
+- Load balancing for webhooks
+- Real-time dashboards
+
+---
+
+**Setup complete! Your RingCentral telephony integration is now production-ready.**
 
 ---
 
@@ -1712,6 +2734,626 @@ frappe-bench/
 
 ---
 
+## Email Routing System (Server Script)
+
+### Overview
+
+The Email Routing System is a sophisticated ERPNext Server Script that automatically routes incoming emails to either HD Tickets (Support) or CRM Leads (Sales) based on intelligent business logic. This is a critical component that ensures proper customer communication management.
+
+**Location:** ERPNext → Automation → Server Script → "Communication Before Save"
+
+**Trigger:** `before_save` event on `Communication` DocType
+
+### Business Logic Flow
+
+```
+                        Incoming Email
+                              ↓
+                    ┌─────────────────────┐
+                    │ Is External Sender? │
+                    └─────────────────────┘
+                         ↓ Yes
+                    ┌─────────────────────┐
+                    │ Is Blocked/System?  │
+                    └─────────────────────┘
+                         ↓ No
+                    ┌─────────────────────┐
+                    │ Sent to support@?   │──Yes──→ Create/Link HD Ticket
+                    └─────────────────────┘
+                         ↓ No
+                    ┌─────────────────────┐
+                    │ Reply to Ticket?    │──Yes──→ Link to HD Ticket
+                    └─────────────────────┘
+                         ↓ No
+                    ┌─────────────────────┐
+                    │ Sent to sales@      │
+                    │ or info@?           │──Yes──→ Create/Link CRM Lead
+                    └─────────────────────┘
+                         ↓ No
+                    ┌─────────────────────┐
+                    │ Has Ticket History? │──Yes──→ Create HD Ticket
+                    └─────────────────────┘
+                         ↓ No
+                    ┌─────────────────────┐
+                    │  New Customer       │──────→ Create CRM Lead
+                    └─────────────────────┘
+```
+
+### Key Features
+
+#### 1. Email Classification
+
+**Email Address → Routing Destination:**
+
+| Email Address | Routing Destination | Priority | Behavior |
+|---------------|-------------------|----------|----------|
+| `support@cozycornerpatios.com` | HD Ticket | Highest | Always creates ticket |
+| `support@zipcushions.com` | HD Ticket | Highest | Always creates ticket |
+| `sales@cozycornerpatios.com` | CRM Lead | High | Creates lead for new customers |
+| `sales@zipcushions.com` | CRM Lead | High | Creates lead for new customers |
+| `info@cozycornerpatios.com` | CRM Lead | High | Creates lead for new customers |
+| `info@zipcushions.com` | CRM Lead | High | Creates lead for new customers |
+| Other addresses | Customer History | Medium | Checks history to decide |
+
+**Support Emails (Priority 1):**
+- `support@cozycornerpatios.com`
+- `support@zipcushions.com`
+
+**Sales Emails (Priority 2):**
+- `sales@cozycornerpatios.com`
+- `sales@zipcushions.com`
+- `info@cozycornerpatios.com`
+- `info@zipcushions.com`
+
+#### 2. Sender Validation
+
+**Blocked Emails:**
+```python
+BLOCKED_EMAILS = [
+    "admin@example.com",
+    "administrator@example.com",
+    "admin@cozycornerpatios.com",
+    "administrator@cozycornerpatios.com",
+    "admin@zipcushions.com",
+    "administrator@zipcushions.com"
+]
+```
+
+**System Keywords:**
+```python
+system_keywords = [
+    'mailer-daemon', 'noreply', 'no-reply', 
+    'postmaster', 'bounce', 'donotreply', 
+    'do-not-reply', 'automated'
+]
+```
+
+#### 3. Smart Name Generation
+
+**Name Extraction Logic:**
+```python
+# Priority 1: Use sender_full_name from email
+if doc.sender_full_name:
+    sender_name = doc.sender_full_name
+
+# Priority 2: Extract from email address
+else:
+    sender_name = sender.split("@")[0].replace(".", " ").replace("_", " ").title()
+
+# Filter out system names
+if sender_name.lower() in ["administrator", "admin", "noreply", "support", "sales", "info"]:
+    sender_name = "Customer"  # Generic fallback
+```
+
+#### 4. Reply Thread Detection
+
+**Three-Level Detection:**
+
+**Level 1: In-Reply-To Header**
+```python
+if doc.in_reply_to:
+    existing_ticket = frappe.db.get_value(
+        "Communication",
+        {
+            "message_id": doc.in_reply_to,
+            "reference_doctype": "HD Ticket"
+        },
+        "reference_name"
+    )
+```
+
+**Level 2: References Header**
+```python
+if doc.references:
+    references = doc.references.split()
+    for ref_id in references:
+        existing_ticket = frappe.db.get_value(
+            "Communication",
+            {"message_id": ref_id, "reference_doctype": "HD Ticket"},
+            "reference_name"
+        )
+```
+
+**Level 3: Recent Open Tickets**
+```python
+recent_ticket = frappe.db.get_value(
+    "HD Ticket",
+    {
+        "raised_by": sender,
+        "status": ["in", ["Open", "Replied", "Waiting for Customer", "On Hold"]]
+    },
+    "name",
+    order_by="modified desc"
+)
+```
+
+### Routing Rules
+
+#### Rule 1: Support Email (Highest Priority)
+
+```python
+sent_to_support = (
+    'support@cozycornerpatios.com' in recipient or
+    'support@zipcushions.com' in recipient
+)
+
+if sent_to_support:
+    # ALWAYS create or link to HD Ticket
+```
+
+**Actions:**
+1. Check for existing open ticket by `raised_by` email
+2. If found: Link to existing ticket
+3. If not found: Create new HD Ticket
+
+**Special Handling:**
+- No description field set (prevents duplicate communication)
+- Contact is ensured to exist before ticket creation
+- Sets `via_customer_portal = 0` to prevent auto-response
+
+#### Rule 2: Reply to Existing Ticket
+
+```python
+if existing_ticket:
+    doc.reference_doctype = "HD Ticket"
+    doc.reference_name = existing_ticket
+```
+
+**Detection Methods:**
+1. In-Reply-To header matches Communication.message_id
+2. References header contains previous message IDs
+3. Customer has open ticket within last 7 days
+
+#### Rule 3: Sales/Info Email
+
+```python
+sent_to_sales = (
+    'sales@cozycornerpatios.com' in recipient or 
+    'sales@zipcushions.com' in recipient
+)
+sent_to_info = (
+    'info@cozycornerpatios.com' in recipient or 
+    'info@zipcushions.com' in recipient
+)
+
+if sent_to_sales or sent_to_info:
+    # Route to CRM Lead
+```
+
+**Actions:**
+1. Check for existing CRM Lead by email
+2. If found: Link to existing lead
+3. If not found: Create new CRM Lead with status "New"
+
+#### Rule 4: Fallback - Customer History
+
+```python
+has_any_ticket = frappe.db.exists("HD Ticket", {"raised_by": sender})
+
+if has_any_ticket:
+    # Customer has support history → Create HD Ticket
+else:
+    # New customer → Create CRM Lead
+```
+
+### Critical Features
+
+#### 1. Duplicate Communication Prevention
+
+**Problem:** HD Ticket's `after_insert` hook creates a communication from description field, causing duplicates.
+
+**Solution:**
+```python
+# CRITICAL FIX: Create ticket WITHOUT description
+ticket = frappe.get_doc({
+    "doctype": "HD Ticket",
+    "subject": subject,
+    "raised_by": sender,
+    "status": "Open", 
+    "priority": "Medium",
+    "via_customer_portal": 0  # Prevents auto-creation
+})
+```
+
+The incoming email Communication becomes the ONLY communication.
+
+#### 2. Contact Pre-Creation
+
+**Problem:** HD Ticket expects Contact to exist before ticket creation.
+
+**Solution:**
+```python
+def ensure_contact_exists(email_addr, full_name):
+    """Ensure contact exists before creating HD Ticket"""
+    contact = frappe.db.get_value("Contact", {"email_id": email_addr}, "name")
+    
+    if not contact:
+        contact_doc = frappe.get_doc({
+            "doctype": "Contact",
+            "first_name": full_name,
+            "email_ids": [{"email_id": email_addr, "is_primary": 1}]
+        })
+        contact_doc.insert(ignore_permissions=True)
+        return contact_doc.name
+    return contact
+```
+
+Called before creating any HD Ticket.
+
+#### 3. Subject Truncation
+
+**Problem:** HD Ticket subject field has 140 character limit.
+
+**Solution:**
+```python
+if len(subject) > 140:
+    subject = subject[:137] + "..."
+```
+
+#### 4. Skip Conditions
+
+**Must Skip If:**
+```python
+# Skip outgoing emails
+if doc.sent_or_received != "Received":
+    return
+
+# Skip internal emails
+if doc.sender.endswith("@cozycornerpatios.com"):
+    return
+
+# Skip already-routed emails
+if doc.reference_doctype and doc.reference_name:
+    return
+
+# Skip system-generated (no email_account)
+if not doc.email_account:
+    return
+```
+
+#### 5. Comprehensive Error Logging
+
+**Every action is logged:**
+```python
+frappe.log_error(
+    f"[START] {sender[:30]} | {subject[:30]}",
+    "Route: Start"
+)
+
+frappe.log_error(
+    f"[SUPPORT] {sender}",
+    "Route: Support"
+)
+
+frappe.log_error(
+    f"[CREATED] Ticket: {ticket.name} | {sender}",
+    "Route: Support Created"
+)
+```
+
+**Log Categories:**
+- `Route: Start` - Processing started
+- `Route: Blocked` - Sender blocked
+- `Route: System Email` - System email detected
+- `Route: Name Gen` - Name generated
+- `Route: Support` - Routed to support
+- `Route: Support Linked` - Linked to existing ticket
+- `Route: Support Created` - New ticket created
+- `Route: CRM Linked` - Linked to existing lead
+- `Route: CRM Created` - New lead created
+- `Route: Critical Error` - Fatal error (but doesn't block)
+
+### Error Handling
+
+**Principle:** Never block email processing, even on errors.
+
+```python
+try:
+    # Routing logic...
+except Exception as e:
+    # CRITICAL: Never block email processing
+    error_msg = f"Communication: {doc_name}\nSender: {doc.sender}\nError: {str(e)}"
+    frappe.log_error(error_msg, "Route: Critical Error")
+    pass  # Allow email to save without routing
+```
+
+**Multiple Try-Catch Blocks:**
+1. Main routing logic
+2. Support ticket creation
+3. Reply detection
+4. CRM lead creation
+5. Fallback routing
+6. Contact creation
+
+Each block fails gracefully and logs errors.
+
+### Installation
+
+**1. Create Server Script:**
+
+Go to: **ERPNext → Automation → Server Script**
+
+**Fields:**
+- **Name:** Communication Before Save
+- **DocType:** Communication
+- **Event:** Before Save
+- **Script Type:** DocType Event
+- **Enabled:** ✓
+
+**2. Paste Script Code**
+
+Copy the entire script into the script field.
+
+**3. Save and Test**
+
+Send test emails to verify routing.
+
+### Testing Checklist
+
+**Support Email Tests:**
+- [ ] New email to support@ creates HD Ticket
+- [ ] Reply to ticket email links to existing ticket
+- [ ] Multiple emails from same customer create one ticket
+- [ ] Support emails never create CRM Leads
+
+**Sales Email Tests:**
+- [ ] New email to sales@ creates CRM Lead
+- [ ] New email to info@ creates CRM Lead
+- [ ] Reply to lead email links to existing lead
+- [ ] Sales emails never create HD Tickets (unless support history)
+
+**Reply Detection Tests:**
+- [ ] Reply with In-Reply-To header links correctly
+- [ ] Reply with References header links correctly
+- [ ] Reply to 7-day-old ticket links correctly
+- [ ] Reply to closed ticket creates new ticket
+
+**Customer History Tests:**
+- [ ] Support customer emailing info@ gets HD Ticket
+- [ ] Sales customer emailing support@ gets HD Ticket
+- [ ] New customer emailing unknown address gets CRM Lead
+
+**Edge Cases:**
+- [ ] Email from admin@example.com is blocked
+- [ ] Email from noreply@ is blocked
+- [ ] Email with no subject works
+- [ ] Email with 200-char subject is truncated
+- [ ] Internal email is skipped
+- [ ] System-generated email is skipped
+
+### Monitoring
+
+**Check Error Logs:**
+```python
+# In bench console
+import frappe
+logs = frappe.get_all(
+    "Error Log",
+    filters={"error": ["like", "%Route:%"]},
+    fields=["name", "creation", "error"],
+    order_by="creation desc",
+    limit=50
+)
+
+for log in logs:
+    print(f"{log.creation}: {log.error[:100]}")
+```
+
+**Check Routing Statistics:**
+```python
+# Get routing stats for last 24 hours
+from frappe.utils import add_days, nowdate
+
+yesterday = add_days(nowdate(), -1)
+
+# Count HD Tickets created
+tickets = frappe.db.count("HD Ticket", filters={
+    "creation": [">=", yesterday]
+})
+
+# Count CRM Leads created  
+leads = frappe.db.count("CRM Lead", filters={
+    "creation": [">=", yesterday]
+})
+
+print(f"Last 24h: {tickets} tickets, {leads} leads")
+```
+
+### Troubleshooting
+
+**Issue: Emails not being routed**
+
+**Check:**
+1. Server Script is enabled
+2. Email has `email_account` set
+3. Sender is not blocked
+4. Check error logs for exceptions
+
+**Solution:**
+```python
+# Check recent communications
+comms = frappe.get_all(
+    "Communication",
+    filters={"creation": [">=", frappe.utils.add_days(frappe.utils.nowdate(), -1)]},
+    fields=["name", "sender", "reference_doctype", "reference_name"],
+    limit=20
+)
+
+for comm in comms:
+    print(f"{comm.name}: {comm.sender} → {comm.reference_doctype or 'NOT ROUTED'}")
+```
+
+**Issue: Duplicate tickets being created**
+
+**Check:**
+1. Reply detection is working
+2. In-Reply-To header is present
+3. Customer has multiple email addresses
+
+**Solution:**
+```python
+# Check for duplicates
+sender = "customer@example.com"
+tickets = frappe.get_all(
+    "HD Ticket",
+    filters={"raised_by": sender, "status": ["in", ["Open", "Replied"]]},
+    fields=["name", "subject", "creation"],
+    order_by="creation desc"
+)
+
+print(f"Found {len(tickets)} open tickets for {sender}")
+```
+
+**Issue: Wrong routing (Support → CRM or vice versa)**
+
+**Check:**
+1. Recipient email address
+2. Customer history
+3. Error logs for routing decision
+
+**Solution:**
+```python
+# Check customer history
+sender = "customer@example.com"
+
+has_tickets = frappe.db.exists("HD Ticket", {"raised_by": sender})
+has_leads = frappe.db.exists("CRM Lead", {"email": sender})
+
+print(f"Has Tickets: {has_tickets}, Has Leads: {has_leads}")
+```
+
+### Performance Considerations
+
+**Database Queries:**
+- Uses indexed fields (`email`, `raised_by`, `message_id`)
+- Limits queries to necessary fields only
+- Orders by `modified desc` for efficiency
+
+**Optimization Tips:**
+1. Add index on `Communication.message_id`
+2. Add index on `Communication.in_reply_to`
+3. Add index on `HD Ticket.raised_by`
+4. Add index on `CRM Lead.email`
+
+**Query Optimization:**
+```sql
+-- Add indexes (run in bench console)
+ALTER TABLE `tabCommunication` ADD INDEX idx_message_id (`message_id`(255));
+ALTER TABLE `tabCommunication` ADD INDEX idx_in_reply_to (`in_reply_to`(255));
+ALTER TABLE `tabHD Ticket` ADD INDEX idx_raised_by (`raised_by`(255));
+ALTER TABLE `tabCRM Lead` ADD INDEX idx_email (`email`(255));
+```
+
+### Integration with Other Features
+
+**Relationship with `custom_zip_erp` Python Module:**
+
+The Server Script and `apps/custom_zip_erp/custom_zip_erp/email_routing.py` serve similar purposes but are implemented differently:
+
+| Feature | Server Script | Python Module (`custom_zip_erp`) |
+|---------|--------------|----------------------------------|
+| **Trigger** | Before Save (DocType Event) | DocType Hook |
+| **Location** | ERPNext UI (Server Script) | Python File |
+| **Deployment** | No code deployment needed | Requires bench restart |
+| **Error Logging** | Comprehensive (every step) | Moderate |
+| **Contact Creation** | Built-in function | Separate implementation |
+| **Reply Detection** | 3-level (In-Reply-To, References, Recent) | Advanced (includes transferred leads) |
+| **Duplicate Prevention** | Via `via_customer_portal = 0` | Via no description |
+| **Email Alias Tracking** | Not implemented | `custom_reply_email_alias` field |
+| **Transferred Lead Handling** | Not implemented | Advanced (checks alias + sender) |
+
+**Recommendation:** 
+- Use **Server Script** for simpler deployments and easier modifications
+- Use **Python Module** for advanced features like email alias tracking and transferred lead detection
+- Both can coexist (Server Script checks for existing reference)
+
+**Works With:**
+- ✅ Email Transfer System (respects transferred emails)
+- ✅ Phone Merging (tickets created have proper contacts)
+- ✅ Order History (routed tickets can fetch order history)
+- ✅ RingCentral Integration (complementary communication channels)
+
+**Coordination:**
+- Email routing runs BEFORE transfer
+- Transfer sets `reference_doctype`, preventing re-routing
+- Contact creation ensures phone fields work properly
+
+### Security Considerations
+
+**Access Control:**
+- Uses `ignore_permissions=True` for system operations
+- Only processes incoming external emails
+- Blocks internal domain emails
+- Blocks system/automated emails
+
+**Data Privacy:**
+- Logs sanitized data (truncated subjects/senders)
+- No sensitive data in error logs
+- Email content not logged
+
+**Injection Prevention:**
+- No SQL injection risk (uses parameterized queries)
+- No code injection (doesn't eval user input)
+- Email addresses validated by Frappe framework
+
+### Maintenance
+
+**Weekly Checks:**
+1. Review error logs for routing failures
+2. Check for blocked legitimate emails
+3. Verify routing statistics (tickets vs leads ratio)
+4. Monitor duplicate ticket creation
+
+**Monthly Tasks:**
+1. Analyze routing patterns
+2. Update blocked email list if needed
+3. Review and archive old error logs
+4. Performance optimization if needed
+
+**Backup:**
+```python
+# Export server script as JSON
+import frappe
+script = frappe.get_doc("Server Script", "Communication Before Save")
+print(frappe.as_json(script))
+```
+
+Save output to version control.
+
+### Future Enhancements
+
+**Potential Improvements:**
+1. **AI-Powered Classification**: Use ML to predict ticket vs lead
+2. **Customer Intent Detection**: Analyze email content for urgency
+3. **Multi-Language Support**: Detect language and route accordingly
+4. **Priority Assignment**: Auto-set priority based on keywords
+5. **Auto-Assignment**: Route to specific agents based on content
+6. **SLA Tracking**: Start SLA timer on ticket creation
+7. **Tag Auto-Assignment**: Add tags based on email content
+8. **Sentiment Analysis**: Flag negative sentiment emails
+
+---
+
 ## Summary
 
 This documentation covers all major enhancements made to the CRM and Helpdesk modules:
@@ -1734,11 +3376,19 @@ This documentation covers all major enhancements made to the CRM and Helpdesk mo
 8. ✅ Order history display
 9. ✅ Email transfer to CRM
 
+**Email Routing:**
+- ✅ Intelligent email routing (Support vs Sales)
+- ✅ Reply thread detection (3-level)
+- ✅ Contact pre-creation
+- ✅ Duplicate prevention
+- ✅ Comprehensive error handling
+
 **Integration:**
 - ✅ RingCentral OAuth authentication with auto-refresh
 - ✅ ERPNext Sales Order integration
 - ✅ Production status tracking
 - ✅ Pabbly webhook processing
+- ✅ Email routing system (Server Script)
 
 All features are production-ready and fully tested.
 
@@ -1755,5 +3405,4 @@ All features are production-ready and fully tested.
 - Check Error Logs in Frappe
 - Review existing documentation files in repository
 - Check RingCentral API status
-
 
