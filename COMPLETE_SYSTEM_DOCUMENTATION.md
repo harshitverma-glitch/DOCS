@@ -3415,7 +3415,353 @@ for call in calls_by_phone:
 
 ---
 
-### Verify All DocTypes After Migration
+### 🔍 Production DocType Verification Guide
+
+#### **Understanding DocType Types**
+
+Before verifying, understand the two types of RingCentral DocTypes:
+
+**NEW DocTypes (4)** - Created from scratch by migrations:
+1. **CRM RingCentral Settings** (Single) - OAuth credentials storage
+2. **RingCentral CRM Payload** (Regular) - CRM webhook processing
+3. **RingCentral Helpdesk Payload** (Regular) - Helpdesk webhook processing
+4. **Unified Call Log** (Regular) - Consolidated call view (ERPNext app)
+
+**ENHANCED DocTypes (3)** - Already exist, we added RingCentral fields:
+1. **CRM Call Log** - Added 3 fields (recording_url, ringcentral_recording_url, transcript)
+2. **Helpdesk Call Log** - Added 6 fields (recording URLs, file paths, transcript, call IDs)
+3. **HD Ticket** - Added 1 field (contact_mobile)
+
+---
+
+#### **Complete Production Verification Script**
+
+Run this on production after pulling code to verify everything:
+
+```python
+import frappe
+
+print("=" * 80)
+print("RINGCENTRAL INTEGRATION - PRODUCTION VERIFICATION")
+print("=" * 80)
+
+# ============================================================================
+# PART 1: CHECK NEW DOCTYPES (Should be created by migrations)
+# ============================================================================
+
+new_doctypes = [
+    "CRM RingCentral Settings",
+    "RingCentral CRM Payload",
+    "RingCentral Helpdesk Payload",
+    "Unified Call Log"
+]
+
+print("\n### PART 1: NEW DOCTYPES ###")
+print("These DocTypes should be created by 'bench migrate'")
+print("-" * 80)
+
+new_doctypes_status = {}
+
+for dt in new_doctypes:
+    exists = frappe.db.exists("DocType", dt)
+    
+    if exists:
+        doc = frappe.get_doc("DocType", dt)
+        table_name = f"tab{dt}"
+        table_exists = frappe.db.table_exists(table_name)
+        
+        print(f"\n✅ {dt}")
+        print(f"   Module: {doc.module}")
+        print(f"   Type: {'Single' if doc.issingle else 'Regular'}")
+        print(f"   Table: {table_name} {'(exists)' if table_exists else '(MISSING!)'}")
+        print(f"   Fields: {len(doc.fields)}")
+        
+        if table_exists and not doc.issingle:
+            count = frappe.db.count(dt)
+            print(f"   Records: {count}")
+        
+        new_doctypes_status[dt] = table_exists
+    else:
+        print(f"\n❌ {dt} - NOT IN DATABASE!")
+        print(f"   Status: DocType not created")
+        new_doctypes_status[dt] = False
+
+# ============================================================================
+# PART 2: CHECK ENHANCED DOCTYPES (Check for RingCentral fields)
+# ============================================================================
+
+enhanced_doctypes = {
+    "CRM Call Log": [
+        "recording_url",
+        "ringcentral_recording_url",
+        "transcript"
+    ],
+    "Helpdesk Call Log": [
+        "recording_url",
+        "ringcentral_recording_url",
+        "recording_file",
+        "transcript",
+        "ringcentral_call_id",
+        "ringcentral_session_id"
+    ],
+    "HD Ticket": [
+        "contact_mobile"
+    ]
+}
+
+print("\n\n### PART 2: ENHANCED DOCTYPES ###")
+print("These DocTypes already exist but should have new RingCentral fields")
+print("-" * 80)
+
+enhanced_status = {}
+
+for dt, required_fields in enhanced_doctypes.items():
+    exists = frappe.db.exists("DocType", dt)
+    
+    if exists:
+        doc = frappe.get_doc("DocType", dt)
+        existing_fieldnames = [f.fieldname for f in doc.fields]
+        
+        print(f"\n✅ {dt} (DocType exists)")
+        print(f"   Module: {doc.module}")
+        
+        missing_fields = []
+        for field in required_fields:
+            if field in existing_fieldnames:
+                print(f"   ✅ Field: {field}")
+            else:
+                print(f"   ❌ Field: {field} - MISSING!")
+                missing_fields.append(field)
+        
+        if missing_fields:
+            print(f"\n   ⚠️  {len(missing_fields)}/{len(required_fields)} RingCentral fields missing!")
+            print(f"   Missing: {', '.join(missing_fields)}")
+            enhanced_status[dt] = False
+        else:
+            print(f"   ✅ All {len(required_fields)} RingCentral fields present")
+            enhanced_status[dt] = True
+    else:
+        print(f"\n❌ {dt} - DOCTYPE DOESN'T EXIST!")
+        print(f"   ⚠️  CRITICAL: This is a core DocType that should exist!")
+        print(f"   Check if {'CRM' if 'CRM' in dt else 'Helpdesk'} app is properly installed")
+        enhanced_status[dt] = False
+
+# ============================================================================
+# PART 3: CHECK GIT FILES EXIST
+# ============================================================================
+
+print("\n\n### PART 3: CHECK DOCTYPE JSON FILES IN GIT ###")
+print("Verify DocType definition files exist in apps")
+print("-" * 80)
+
+import os
+
+file_checks = {
+    "CRM RingCentral Settings": "apps/crm/crm/fcrm/doctype/crm_ringcentral_settings/crm_ringcentral_settings.json",
+    "RingCentral CRM Payload": "apps/crm/crm/fcrm/doctype/ringcentral_crm_payload/ringcentral_crm_payload.json",
+    "RingCentral Helpdesk Payload": "apps/helpdesk/helpdesk/helpdesk/doctype/ringcentral_helpdesk_payload/ringcentral_helpdesk_payload.json",
+    "Unified Call Log": "apps/erpnext/erpnext/telephony/doctype/unified_call_log/unified_call_log.json"
+}
+
+bench_path = frappe.utils.get_bench_path()
+
+for dt, file_path in file_checks.items():
+    full_path = os.path.join(bench_path, file_path)
+    if os.path.exists(full_path):
+        print(f"✅ {dt}")
+        print(f"   File: {file_path}")
+    else:
+        print(f"❌ {dt}")
+        print(f"   File: {file_path} - NOT FOUND!")
+        print(f"   Action: Pull latest code from git")
+
+# ============================================================================
+# SUMMARY AND RECOMMENDATIONS
+# ============================================================================
+
+print("\n" + "=" * 80)
+print("SUMMARY")
+print("=" * 80)
+
+# Count statuses
+new_ok = sum(1 for v in new_doctypes_status.values() if v)
+enhanced_ok = sum(1 for v in enhanced_status.values() if v)
+
+print(f"\nNew DocTypes: {new_ok}/{len(new_doctypes_status)} ✅")
+print(f"Enhanced DocTypes: {enhanced_ok}/{len(enhanced_status)} ✅")
+
+# Overall status
+all_ok = (new_ok == len(new_doctypes_status)) and (enhanced_ok == len(enhanced_status))
+
+if all_ok:
+    print("\n" + "🎉" * 40)
+    print("✅ ALL RINGCENTRAL DOCTYPES VERIFIED SUCCESSFULLY!")
+    print("🎉" * 40)
+    print("\nYour RingCentral integration is properly installed.")
+else:
+    print("\n" + "⚠️ " * 40)
+    print("ISSUES FOUND - ACTION REQUIRED")
+    print("⚠️ " * 40)
+    
+    if new_ok < len(new_doctypes_status):
+        print(f"\n❌ {len(new_doctypes_status) - new_ok} New DocType(s) missing")
+        print("   ACTION: Run migrations")
+        print("   Command: bench --site your-site.com migrate")
+    
+    if enhanced_ok < len(enhanced_status):
+        print(f"\n❌ {len(enhanced_status) - enhanced_ok} Enhanced DocType(s) missing fields")
+        print("   ACTION: Run migrations")
+        print("   Command: bench --site your-site.com migrate")
+    
+    print("\n📋 COMPLETE FIX SEQUENCE:")
+    print("   1. cd ~/frappe-bench")
+    print("   2. bench --site your-site.com migrate")
+    print("   3. bench --site your-site.com clear-cache")
+    print("   4. bench restart")
+    print("   5. Re-run this verification script")
+
+print("\n" + "=" * 80)
+```
+
+---
+
+#### **Quick Verification (Minimal)**
+
+For a quick check without detailed output:
+
+```python
+import frappe
+
+# Quick check
+doctypes = [
+    "CRM RingCentral Settings",
+    "RingCentral CRM Payload", 
+    "RingCentral Helpdesk Payload",
+    "Unified Call Log"
+]
+
+print("Quick DocType Check:")
+for dt in doctypes:
+    exists = frappe.db.exists("DocType", dt)
+    table_exists = frappe.db.table_exists(f"tab{dt}") if exists else False
+    status = "✅" if (exists and table_exists) else "❌"
+    print(f"{status} {dt}")
+
+# Check if migrations needed
+missing = sum(1 for dt in doctypes if not frappe.db.exists("DocType", dt))
+if missing > 0:
+    print(f"\n⚠️  {missing} DocType(s) missing - Run: bench migrate")
+else:
+    print("\n✅ All DocTypes exist!")
+```
+
+---
+
+#### **Common Issues and Solutions**
+
+**Issue 1: "DocType NOT IN DATABASE"**
+
+**Cause:** Migrations haven't been run after pulling code
+
+**Solution:**
+```bash
+cd ~/frappe-bench
+bench --site your-site.com migrate
+bench restart
+```
+
+---
+
+**Issue 2: "Table MISSING!"**
+
+**Cause:** DocType created but database table not created (incomplete migration)
+
+**Solution:**
+```bash
+# Force rebuild
+bench --site your-site.com migrate --rebuild-doctype-cache
+
+# Or force complete migration
+bench --site your-site.com migrate --skip-failing
+```
+
+---
+
+**Issue 3: "Enhanced DocType missing fields"**
+
+**Cause:** Migration ran but field additions didn't apply
+
+**Solution:**
+```bash
+# Clear cache and re-migrate
+bench --site your-site.com clear-cache
+bench --site your-site.com migrate --force
+
+# If still failing, check Custom Fields
+bench --site your-site.com console
+```
+
+Then:
+```python
+import frappe
+
+# Check if fields exist as Custom Fields
+custom_fields = frappe.get_all(
+    "Custom Field",
+    filters={"dt": "CRM Call Log", "fieldname": ["in", ["recording_url", "ringcentral_recording_url", "transcript"]]},
+    fields=["fieldname", "label"]
+)
+
+print(f"Found {len(custom_fields)} custom fields:")
+for cf in custom_fields:
+    print(f"  ✅ {cf.fieldname} - {cf.label}")
+```
+
+---
+
+**Issue 4: "Unified Call Log NOT FOUND"**
+
+**Cause:** This DocType is in ERPNext app, may not be pushed to your fork
+
+**Solution:**
+
+Check if file exists:
+```bash
+ls -la ~/frappe-bench/apps/erpnext/erpnext/telephony/doctype/unified_call_log/
+```
+
+If missing, create manually using console script (see DocType 7 section above).
+
+---
+
+#### **Verification After Fix**
+
+After running migrations, verify:
+
+```python
+import frappe
+
+# Verify all tables exist
+doctypes = ["CRM RingCentral Settings", "RingCentral CRM Payload", "RingCentral Helpdesk Payload", "Unified Call Log"]
+
+print("Post-Migration Verification:")
+for dt in doctypes:
+    if frappe.db.exists("DocType", dt):
+        table_exists = frappe.db.table_exists(f"tab{dt}")
+        if table_exists:
+            print(f"✅ {dt} - Table exists")
+            if dt != "CRM RingCentral Settings":
+                count = frappe.db.count(dt)
+                print(f"   Records: {count}")
+        else:
+            print(f"❌ {dt} - Table missing!")
+    else:
+        print(f"❌ {dt} - DocType missing!")
+```
+
+---
+
+### Verify All DocTypes After Migration (Simple Version)
 
 ```python
 import frappe
