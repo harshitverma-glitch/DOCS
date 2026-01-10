@@ -1215,6 +1215,2446 @@ def extract_customer_email(sender, recipients):
 
 Complete telephony integration with RingCentral, including OAuth authentication, call logging, recording playback, and transcription.
 
+---
+
+### RingCentral DocTypes Overview
+
+The RingCentral integration creates **4 new DocTypes** and enhances **3 existing DocTypes** across CRM, Helpdesk, and ERPNext modules.
+
+---
+
+### 🚀 Complete Table Creation Script (ALL DocTypes)
+
+**⚠️ IMPORTANT:** Use this script ONLY if you need to manually create DocTypes. Normally, these are created automatically via `bench migrate` when you pull code from GitHub.
+
+```python
+import frappe
+
+def create_all_ringcentral_doctypes():
+    """
+    Complete script to create all RingCentral-related DocTypes
+    Run in bench console: bench --site mysite.local console
+    """
+    
+    print("=" * 80)
+    print("CREATING RINGCENTRAL DOCTYPES")
+    print("=" * 80)
+    
+    # ========================================================================
+    # 1. CRM RINGCENTRAL SETTINGS (Single DocType)
+    # ========================================================================
+    print("\n1. Creating CRM RingCentral Settings...")
+    
+    if not frappe.db.exists("DocType", "CRM RingCentral Settings"):
+        settings_doctype = frappe.get_doc({
+            "doctype": "DocType",
+            "name": "CRM RingCentral Settings",
+            "module": "FCRM",
+            "issingle": 1,
+            "is_submittable": 0,
+            "track_changes": 1,
+            "fields": [
+                {"fieldname": "oauth_section", "fieldtype": "Section Break", "label": "OAuth 2.0 Configuration"},
+                {"fieldname": "enabled", "fieldtype": "Check", "label": "Enable Recording Download", "default": "0"},
+                {"fieldname": "client_id", "fieldtype": "Data", "label": "Client ID", "mandatory_depends_on": "eval:doc.enabled==1"},
+                {"fieldname": "client_secret", "fieldtype": "Password", "label": "Client Secret", "mandatory_depends_on": "eval:doc.enabled==1"},
+                {"fieldname": "redirect_uri", "fieldtype": "Data", "label": "OAuth Redirect URI", "read_only": 1},
+                {"fieldname": "column_break_oauth", "fieldtype": "Column Break"},
+                {"fieldname": "authorize_button", "fieldtype": "Button", "label": "Authorize with RingCentral"},
+                {"fieldname": "token_section", "fieldtype": "Section Break", "label": "OAuth Tokens", "collapsible": 1},
+                {"fieldname": "access_token", "fieldtype": "Password", "label": "Access Token", "read_only": 1},
+                {"fieldname": "refresh_token", "fieldtype": "Password", "label": "Refresh Token", "read_only": 1},
+                {"fieldname": "token_expires_at", "fieldtype": "Int", "label": "Token Expires At", "read_only": 1},
+                {"fieldname": "token_expires_in", "fieldtype": "Int", "label": "Token Expires In", "read_only": 1},
+                {"fieldname": "last_token_refresh", "fieldtype": "Datetime", "label": "Last Token Refresh", "read_only": 1},
+                {"fieldname": "legacy_section", "fieldtype": "Section Break", "label": "Legacy Settings", "collapsible": 1},
+                {"fieldname": "username", "fieldtype": "Data", "label": "Username (Deprecated)"},
+                {"fieldname": "password", "fieldtype": "Password", "label": "Password (Deprecated)"},
+                {"fieldname": "extension", "fieldtype": "Data", "label": "Extension (Deprecated)"},
+                {"fieldname": "account_section", "fieldtype": "Section Break", "label": "Account Settings"},
+                {"fieldname": "account_id", "fieldtype": "Data", "label": "Account ID", "default": "~"},
+                {"fieldname": "extension_id", "fieldtype": "Data", "label": "Extension ID", "default": "~"}
+            ],
+            "permissions": [{"role": "System Manager", "read": 1, "write": 1, "create": 1}]
+        })
+        settings_doctype.insert(ignore_permissions=True)
+        print("   ✅ Created: CRM RingCentral Settings")
+    else:
+        print("   ⏭️  Already exists: CRM RingCentral Settings")
+    
+    # ========================================================================
+    # 2. RINGCENTRAL CRM PAYLOAD (Regular DocType)
+    # ========================================================================
+    print("\n2. Creating RingCentral CRM Payload...")
+    
+    if not frappe.db.exists("DocType", "RingCentral CRM Payload"):
+        crm_payload_doctype = frappe.get_doc({
+            "doctype": "DocType",
+            "name": "RingCentral CRM Payload",
+            "module": "FCRM",
+            "issingle": 0,
+            "track_changes": 1,
+            "autoname": "naming_series:",
+            "fields": [
+                {"fieldname": "naming_series", "fieldtype": "Select", "label": "Series", "options": "RCP-.YYYY.-.MM.-.#####", "default": "RCP-.YYYY.-.MM.-.#####", "reqd": 1},
+                {"fieldname": "call_info_section", "fieldtype": "Section Break", "label": "Call Information"},
+                {"fieldname": "session_id", "fieldtype": "Data", "label": "Session ID", "reqd": 1, "unique": 1, "in_list_view": 1, "in_standard_filter": 1},
+                {"fieldname": "uuid", "fieldtype": "Data", "label": "UUID", "unique": 1},
+                {"fieldname": "column_break_1", "fieldtype": "Column Break"},
+                {"fieldname": "caller_number", "fieldtype": "Data", "label": "Caller Number", "search_index": 1, "in_list_view": 1},
+                {"fieldname": "called_number", "fieldtype": "Data", "label": "Called Number"},
+                {"fieldname": "caller_name", "fieldtype": "Data", "label": "Caller Name"},
+                {"fieldname": "call_details_section", "fieldtype": "Section Break", "label": "Call Details"},
+                {"fieldname": "call_direction", "fieldtype": "Select", "label": "Direction", "options": "\nInbound\nOutbound", "in_list_view": 1},
+                {"fieldname": "extension_id", "fieldtype": "Data", "label": "Extension ID"},
+                {"fieldname": "payload_section", "fieldtype": "Section Break", "label": "Payload Data"},
+                {"fieldname": "raw_payload", "fieldtype": "Long Text", "label": "Raw Payload", "reqd": 1},
+                {"fieldname": "processing_section", "fieldtype": "Section Break", "label": "Processing Status"},
+                {"fieldname": "processed", "fieldtype": "Check", "label": "Processed", "default": "0"},
+                {"fieldname": "processing_status", "fieldtype": "Select", "label": "Processing Status", "options": "Pending\nProcessed\nError\nSkipped", "default": "Pending", "reqd": 1, "in_list_view": 1},
+                {"fieldname": "column_break_proc", "fieldtype": "Column Break"},
+                {"fieldname": "processed_at", "fieldtype": "Datetime", "label": "Processed At"},
+                {"fieldname": "processing_notes", "fieldtype": "Text", "label": "Processing Notes"},
+                {"fieldname": "error_message", "fieldtype": "Text", "label": "Error Message"},
+                {"fieldname": "created_docs_section", "fieldtype": "Section Break", "label": "Created Documents"},
+                {"fieldname": "crm_lead_created", "fieldtype": "Link", "label": "CRM Lead Created", "options": "CRM Lead"},
+                {"fieldname": "crm_call_log_created", "fieldtype": "Link", "label": "CRM Call Log Created", "options": "CRM Call Log"}
+            ],
+            "permissions": [
+                {"role": "System Manager", "read": 1, "write": 1, "create": 1, "delete": 1},
+                {"role": "CRM Manager", "read": 1, "write": 1, "create": 1}
+            ],
+            "sort_field": "modified",
+            "sort_order": "DESC"
+        })
+        crm_payload_doctype.insert(ignore_permissions=True)
+        print("   ✅ Created: RingCentral CRM Payload")
+    else:
+        print("   ⏭️  Already exists: RingCentral CRM Payload")
+    
+    # ========================================================================
+    # 3. RINGCENTRAL HELPDESK PAYLOAD (Regular DocType)
+    # ========================================================================
+    print("\n3. Creating RingCentral Helpdesk Payload...")
+    
+    if not frappe.db.exists("DocType", "RingCentral Helpdesk Payload"):
+        hd_payload_doctype = frappe.get_doc({
+            "doctype": "DocType",
+            "name": "RingCentral Helpdesk Payload",
+            "module": "Helpdesk",
+            "issingle": 0,
+            "track_changes": 1,
+            "autoname": "naming_series:",
+            "fields": [
+                {"fieldname": "naming_series", "fieldtype": "Select", "label": "Series", "options": "RHP-.YYYY.-.MM.-.#####", "default": "RHP-.YYYY.-.MM.-.#####", "reqd": 1},
+                {"fieldname": "call_info_section", "fieldtype": "Section Break", "label": "Call Information"},
+                {"fieldname": "session_id", "fieldtype": "Data", "label": "Session ID", "reqd": 1, "unique": 1, "in_list_view": 1, "in_standard_filter": 1},
+                {"fieldname": "uuid", "fieldtype": "Data", "label": "UUID", "unique": 1},
+                {"fieldname": "column_break_1", "fieldtype": "Column Break"},
+                {"fieldname": "caller_number", "fieldtype": "Data", "label": "Caller Number", "search_index": 1, "in_list_view": 1},
+                {"fieldname": "called_number", "fieldtype": "Data", "label": "Called Number"},
+                {"fieldname": "caller_name", "fieldtype": "Data", "label": "Caller Name"},
+                {"fieldname": "call_details_section", "fieldtype": "Section Break", "label": "Call Details"},
+                {"fieldname": "call_direction", "fieldtype": "Select", "label": "Direction", "options": "\nInbound\nOutbound", "in_list_view": 1},
+                {"fieldname": "extension_id", "fieldtype": "Data", "label": "Extension ID"},
+                {"fieldname": "payload_section", "fieldtype": "Section Break", "label": "Payload Data"},
+                {"fieldname": "raw_payload", "fieldtype": "JSON", "label": "Raw Payload", "reqd": 1},
+                {"fieldname": "processing_section", "fieldtype": "Section Break", "label": "Processing Status"},
+                {"fieldname": "processed", "fieldtype": "Check", "label": "Processed", "default": "0"},
+                {"fieldname": "processing_status", "fieldtype": "Select", "label": "Processing Status", "options": "Pending\nProcessed\nError\nSkipped", "default": "Pending", "reqd": 1, "in_list_view": 1},
+                {"fieldname": "column_break_proc", "fieldtype": "Column Break"},
+                {"fieldname": "processed_at", "fieldtype": "Datetime", "label": "Processed At"},
+                {"fieldname": "processing_notes", "fieldtype": "Text", "label": "Processing Notes"},
+                {"fieldname": "error_message", "fieldtype": "Text", "label": "Error Message"},
+                {"fieldname": "created_docs_section", "fieldtype": "Section Break", "label": "Created Documents"},
+                {"fieldname": "contact_created", "fieldtype": "Link", "label": "Contact Created", "options": "Contact"},
+                {"fieldname": "column_break_docs", "fieldtype": "Column Break"},
+                {"fieldname": "helpdesk_call_log_created", "fieldtype": "Link", "label": "Helpdesk Call Log Created", "options": "Helpdesk Call Log"},
+                {"fieldname": "ticket_created", "fieldtype": "Link", "label": "Ticket Created", "options": "HD Ticket"}
+            ],
+            "permissions": [
+                {"role": "System Manager", "read": 1, "write": 1, "create": 1, "delete": 1},
+                {"role": "Support Team", "read": 1, "write": 1, "create": 1}
+            ],
+            "sort_field": "modified",
+            "sort_order": "DESC"
+        })
+        hd_payload_doctype.insert(ignore_permissions=True)
+        print("   ✅ Created: RingCentral Helpdesk Payload")
+    else:
+        print("   ⏭️  Already exists: RingCentral Helpdesk Payload")
+    
+    # ========================================================================
+    # 4. UNIFIED CALL LOG (Regular DocType)
+    # ========================================================================
+    print("\n4. Creating Unified Call Log...")
+    
+    if not frappe.db.exists("DocType", "Unified Call Log"):
+        unified_doctype = frappe.get_doc({
+            "doctype": "DocType",
+            "name": "Unified Call Log",
+            "module": "Telephony",
+            "issingle": 0,
+            "track_changes": 1,
+            "autoname": "naming_series:",
+            "title_field": "caller_name",
+            "fields": [
+                {"fieldname": "naming_series", "fieldtype": "Select", "label": "Series", "options": "UCL-.YYYY.-.MM.-.#####", "default": "UCL-.YYYY.-.MM.-.#####", "reqd": 1},
+                {"fieldname": "source_section", "fieldtype": "Section Break", "label": "Source Information"},
+                {"fieldname": "call_id", "fieldtype": "Data", "label": "Call ID", "unique": 1},
+                {"fieldname": "source_doctype", "fieldtype": "Select", "label": "Source", "options": "CRM Call Log\nHelpdesk Call Log", "reqd": 1, "in_list_view": 1},
+                {"fieldname": "source_name", "fieldtype": "Data", "label": "Source Document"},
+                {"fieldname": "column_break_source", "fieldtype": "Column Break"},
+                {"fieldname": "telephony_medium", "fieldtype": "Select", "label": "Telephony Medium", "options": "\nRingCentral\nTwilio\nExotel\nManual\nOther", "default": "RingCentral"},
+                {"fieldname": "call_info_section", "fieldtype": "Section Break", "label": "Call Information"},
+                {"fieldname": "type", "fieldtype": "Select", "label": "Type", "options": "Incoming\nOutgoing", "reqd": 1, "in_list_view": 1},
+                {"fieldname": "from_number", "fieldtype": "Data", "label": "From", "search_index": 1, "in_list_view": 1},
+                {"fieldname": "to_number", "fieldtype": "Data", "label": "To", "in_list_view": 1},
+                {"fieldname": "column_break_call", "fieldtype": "Column Break"},
+                {"fieldname": "duration", "fieldtype": "Data", "label": "Duration"},
+                {"fieldname": "status", "fieldtype": "Select", "label": "Status", "options": "\nInitiated\nRinging\nIn Progress\nCompleted\nFailed\nBusy\nNo Answer\nQueued\nCanceled", "default": "Completed", "in_list_view": 1},
+                {"fieldname": "time_section", "fieldtype": "Section Break", "label": "Time Information"},
+                {"fieldname": "start_time", "fieldtype": "Datetime", "label": "Start Time"},
+                {"fieldname": "column_break_time", "fieldtype": "Column Break"},
+                {"fieldname": "end_time", "fieldtype": "Datetime", "label": "End Time"},
+                {"fieldname": "recording_section", "fieldtype": "Section Break", "label": "Recording & Transcript", "collapsible": 1},
+                {"fieldname": "recording_url", "fieldtype": "Data", "label": "Recording URL"},
+                {"fieldname": "participants_section", "fieldtype": "Section Break", "label": "Participants"},
+                {"fieldname": "caller_name", "fieldtype": "Data", "label": "Caller Name"},
+                {"fieldname": "customer", "fieldtype": "Link", "label": "Customer", "options": "Customer"},
+                {"fieldname": "column_break_participants", "fieldtype": "Column Break"},
+                {"fieldname": "caller", "fieldtype": "Link", "label": "Caller (User)", "options": "User"},
+                {"fieldname": "receiver", "fieldtype": "Link", "label": "Call Received By", "options": "User"},
+                {"fieldname": "reference_section", "fieldtype": "Section Break", "label": "Linked Document"},
+                {"fieldname": "reference_doctype", "fieldtype": "Link", "label": "Reference DocType", "options": "DocType"},
+                {"fieldname": "reference_name", "fieldtype": "Dynamic Link", "label": "Reference Name", "options": "reference_doctype"},
+                {"fieldname": "notes_section", "fieldtype": "Section Break", "label": "Notes"},
+                {"fieldname": "note", "fieldtype": "Text", "label": "Note"},
+                {"fieldname": "summary", "fieldtype": "Text Editor", "label": "Call Summary"}
+            ],
+            "permissions": [
+                {"role": "System Manager", "read": 1, "write": 1, "create": 1, "delete": 1},
+                {"role": "Sales User", "read": 1},
+                {"role": "Support Team", "read": 1}
+            ],
+            "sort_field": "modified",
+            "sort_order": "DESC",
+            "search_fields": "caller_name,from_number,to_number"
+        })
+        unified_doctype.insert(ignore_permissions=True)
+        print("   ✅ Created: Unified Call Log")
+    else:
+        print("   ⏭️  Already exists: Unified Call Log")
+    
+    # ========================================================================
+    # COMMIT ALL CHANGES
+    # ========================================================================
+    frappe.db.commit()
+    
+    print("\n" + "=" * 80)
+    print("✅ ALL DOCTYPES CREATED SUCCESSFULLY")
+    print("=" * 80)
+    print("\n⚠️  NEXT STEP: Run migrations to create database tables")
+    print("   Command: bench --site mysite.local migrate")
+    print("\n")
+
+# Execute the function
+create_all_ringcentral_doctypes()
+```
+
+---
+
+### 🔧 Enhanced Fields Creation (For Existing DocTypes)
+
+Use this script to add RingCentral fields to **existing** CRM Call Log, Helpdesk Call Log, and HD Ticket DocTypes:
+
+```python
+import frappe
+
+def add_ringcentral_fields_to_existing_doctypes():
+    """
+    Add RingCentral fields to existing DocTypes using Custom Fields
+    This is SAFER than modifying core DocType definitions
+    """
+    
+    print("=" * 80)
+    print("ADDING RINGCENTRAL FIELDS TO EXISTING DOCTYPES")
+    print("=" * 80)
+    
+    # Import custom field creator
+    from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
+    
+    # Define all custom fields
+    custom_fields = {
+        # CRM Call Log - Add 3 fields
+        "CRM Call Log": [
+            {
+                "fieldname": "recording_url",
+                "fieldtype": "Data",
+                "label": "Recording URL",
+                "insert_after": "end_time"
+            },
+            {
+                "fieldname": "ringcentral_recording_url",
+                "fieldtype": "Data",
+                "label": "RingCentral Recording URL",
+                "insert_after": "recording_url",
+                "description": "Original RingCentral API URL for transcript"
+            },
+            {
+                "fieldname": "transcript",
+                "fieldtype": "Long Text",
+                "label": "Transcript",
+                "insert_after": "ringcentral_recording_url",
+                "description": "Cached call transcription"
+            }
+        ],
+        
+        # Helpdesk Call Log - Add 6 fields
+        "Helpdesk Call Log": [
+            {
+                "fieldname": "recording_url",
+                "fieldtype": "Data",
+                "label": "Recording URL",
+                "insert_after": "end_time"
+            },
+            {
+                "fieldname": "ringcentral_recording_url",
+                "fieldtype": "Data",
+                "label": "RingCentral Recording URL",
+                "insert_after": "recording_url"
+            },
+            {
+                "fieldname": "recording_file",
+                "fieldtype": "Data",
+                "label": "Recording File",
+                "insert_after": "ringcentral_recording_url",
+                "description": "Local file path after download"
+            },
+            {
+                "fieldname": "transcript",
+                "fieldtype": "Long Text",
+                "label": "Transcript",
+                "insert_after": "recording_file"
+            },
+            {
+                "fieldname": "ringcentral_call_id",
+                "fieldtype": "Data",
+                "label": "RingCentral Call ID",
+                "insert_after": "transcript"
+            },
+            {
+                "fieldname": "ringcentral_session_id",
+                "fieldtype": "Data",
+                "label": "RingCentral Session ID",
+                "insert_after": "ringcentral_call_id"
+            }
+        ],
+        
+        # HD Ticket - Add 1 field
+        "HD Ticket": [
+            {
+                "fieldname": "contact_mobile",
+                "fieldtype": "Data",
+                "label": "Contact Mobile",
+                "fetch_from": "contact.mobile_no",
+                "insert_after": "contact",
+                "description": "Customer phone number for call log linking"
+            }
+        ]
+    }
+    
+    # Create all custom fields
+    print("\nCreating custom fields...")
+    create_custom_fields(custom_fields)
+    frappe.db.commit()
+    
+    print("\n✅ CUSTOM FIELDS CREATED SUCCESSFULLY")
+    print("\nFields added:")
+    print("   • CRM Call Log: 3 fields (recording_url, ringcentral_recording_url, transcript)")
+    print("   • Helpdesk Call Log: 6 fields (recording_url, ringcentral_recording_url, recording_file, transcript, ringcentral_call_id, ringcentral_session_id)")
+    print("   • HD Ticket: 1 field (contact_mobile)")
+    print("\n⚠️  NEXT STEP: Run migrations")
+    print("   Command: bench --site mysite.local migrate")
+    print("\n" + "=" * 80)
+
+# Execute the function
+add_ringcentral_fields_to_existing_doctypes()
+```
+
+---
+
+### ✅ Verification Script (After Migration)
+
+Run this after `bench migrate` to verify all tables and fields exist:
+
+```python
+import frappe
+
+def verify_ringcentral_tables():
+    """
+    Verify all RingCentral DocTypes and tables exist
+    """
+    
+    print("=" * 80)
+    print("RINGCENTRAL TABLES VERIFICATION")
+    print("=" * 80)
+    
+    # List of all RingCentral-related DocTypes
+    doctypes = [
+        "CRM RingCentral Settings",
+        "RingCentral CRM Payload",
+        "RingCentral Helpdesk Payload",
+        "CRM Call Log",
+        "Helpdesk Call Log",
+        "HD Ticket",
+        "Unified Call Log"
+    ]
+    
+    all_good = True
+    
+    for doctype in doctypes:
+        exists = frappe.db.exists("DocType", doctype)
+        
+        if exists:
+            doc = frappe.get_doc("DocType", doctype)
+            table_name = f"tab{doctype}"
+            table_exists = frappe.db.table_exists(table_name)
+            
+            status = "✅" if table_exists else "❌"
+            print(f"\n{status} {doctype}")
+            print(f"   Module: {doc.module}")
+            print(f"   Type: {'Single' if doc.issingle else 'Regular'}")
+            print(f"   Table: {table_name} {'(exists)' if table_exists else '(NOT FOUND!)'}")
+            print(f"   Fields: {len(doc.fields)}")
+            
+            # Count records for regular DocTypes
+            if not doc.issingle and table_exists:
+                count = frappe.db.count(doctype)
+                print(f"   Records: {count}")
+            
+            if not table_exists:
+                all_good = False
+        else:
+            print(f"\n❌ {doctype} - DocType NOT FOUND!")
+            all_good = False
+    
+    print("\n" + "=" * 80)
+    
+    if all_good:
+        print("✅ ALL RINGCENTRAL TABLES VERIFIED SUCCESSFULLY!")
+    else:
+        print("❌ SOME TABLES ARE MISSING - Run bench migrate!")
+    
+    print("=" * 80)
+    
+    return all_good
+
+# Execute verification
+verify_ringcentral_tables()
+```
+
+---
+
+### 📋 Quick Reference: Which Script to Use?
+
+| Scenario | Script to Use | Command |
+|----------|---------------|---------|
+| **Fresh Installation** | Pull from GitHub + Migrate | `git pull && bench migrate` |
+| **Manual DocType Creation** | `create_all_ringcentral_doctypes()` | Copy into `bench console` |
+| **Add Fields to Existing DocTypes** | `add_ringcentral_fields_to_existing_doctypes()` | Copy into `bench console` |
+| **Verify After Migration** | `verify_ringcentral_tables()` | Copy into `bench console` |
+| **Production Deployment** | Pull + Migrate | See deployment guide below |
+
+---
+
+### DocType 1: CRM RingCentral Settings (Single DocType)
+
+**Location:** `apps/crm/crm/fcrm/doctype/crm_ringcentral_settings/`  
+**Module:** FCRM  
+**Type:** Single (only one record)  
+**Purpose:** Store RingCentral OAuth credentials and API configuration
+
+#### Field Structure
+
+| Field Name | Field Type | Label | Required | Description |
+|------------|------------|-------|----------|-------------|
+| `enabled` | Check | Enable Recording Download | No | Auto-download call recordings |
+| `client_id` | Data | Client ID | Conditional | RingCentral App Client ID |
+| `client_secret` | Password | Client Secret | Conditional | RingCentral App Secret (encrypted) |
+| `redirect_uri` | Data | OAuth Redirect URI | No | Auto-generated callback URL |
+| `authorize_button` | Button | Authorize RingCentral | No | Trigger OAuth flow |
+| `access_token` | Password | Access Token | No | OAuth access token (auto-filled) |
+| `refresh_token` | Password | Refresh Token | No | OAuth refresh token (auto-filled) |
+| `token_expires_at` | Int | Token Expires At | No | Unix timestamp |
+| `last_token_refresh` | Datetime | Last Token Refresh | No | Last refresh time |
+| `username` | Data | Username (Deprecated) | No | Legacy password auth |
+| `password` | Password | Password (Deprecated) | No | Legacy password auth |
+| `extension` | Data | Extension (Deprecated) | No | Legacy extension |
+| `account_id` | Data | Account ID | No | RingCentral account ID (default: ~) |
+| `extension_id` | Data | Extension ID | No | Extension ID (default: ~) |
+
+#### Console Code to CREATE the DocType (Table Schema)
+
+```python
+import frappe
+
+# Create CRM RingCentral Settings DocType
+doctype = frappe.get_doc({
+    "doctype": "DocType",
+    "name": "CRM RingCentral Settings",
+    "module": "FCRM",
+    "issingle": 1,  # Single DocType
+    "is_submittable": 0,
+    "is_tree": 0,
+    "editable_grid": 0,
+    "track_changes": 1,
+    "fields": [
+        # Section: OAuth Settings
+        {
+            "fieldname": "oauth_section",
+            "fieldtype": "Section Break",
+            "label": "OAuth 2.0 Configuration"
+        },
+        {
+            "fieldname": "enabled",
+            "fieldtype": "Check",
+            "label": "Enable Recording Download",
+            "default": "0"
+        },
+        {
+            "fieldname": "client_id",
+            "fieldtype": "Data",
+            "label": "Client ID",
+            "mandatory_depends_on": "eval:doc.enabled==1"
+        },
+        {
+            "fieldname": "client_secret",
+            "fieldtype": "Password",
+            "label": "Client Secret",
+            "mandatory_depends_on": "eval:doc.enabled==1"
+        },
+        {
+            "fieldname": "redirect_uri",
+            "fieldtype": "Data",
+            "label": "OAuth Redirect URI",
+            "read_only": 1,
+            "default": "https://your-domain.com/api/method/crm.api.ringcentral_auth.oauth_callback"
+        },
+        {
+            "fieldname": "column_break_oauth",
+            "fieldtype": "Column Break"
+        },
+        {
+            "fieldname": "authorize_button",
+            "fieldtype": "Button",
+            "label": "Authorize with RingCentral"
+        },
+        # Section: Token Storage
+        {
+            "fieldname": "token_section",
+            "fieldtype": "Section Break",
+            "label": "OAuth Tokens (Auto-Filled)",
+            "collapsible": 1
+        },
+        {
+            "fieldname": "access_token",
+            "fieldtype": "Password",
+            "label": "Access Token",
+            "read_only": 1
+        },
+        {
+            "fieldname": "refresh_token",
+            "fieldtype": "Password",
+            "label": "Refresh Token",
+            "read_only": 1
+        },
+        {
+            "fieldname": "token_expires_at",
+            "fieldtype": "Int",
+            "label": "Token Expires At (Unix Timestamp)",
+            "read_only": 1
+        },
+        {
+            "fieldname": "token_expires_in",
+            "fieldtype": "Int",
+            "label": "Token Expires In (Seconds)",
+            "read_only": 1
+        },
+        {
+            "fieldname": "last_token_refresh",
+            "fieldtype": "Datetime",
+            "label": "Last Token Refresh",
+            "read_only": 1
+        },
+        # Section: Legacy Settings (Deprecated)
+        {
+            "fieldname": "legacy_section",
+            "fieldtype": "Section Break",
+            "label": "Legacy Settings (Deprecated)",
+            "collapsible": 1,
+            "collapsible_depends_on": "eval:doc.username"
+        },
+        {
+            "fieldname": "username",
+            "fieldtype": "Data",
+            "label": "Username (Deprecated)"
+        },
+        {
+            "fieldname": "password",
+            "fieldtype": "Password",
+            "label": "Password (Deprecated)"
+        },
+        {
+            "fieldname": "extension",
+            "fieldtype": "Data",
+            "label": "Extension (Deprecated)"
+        },
+        # Section: Account Settings
+        {
+            "fieldname": "account_section",
+            "fieldtype": "Section Break",
+            "label": "Account Settings"
+        },
+        {
+            "fieldname": "account_id",
+            "fieldtype": "Data",
+            "label": "Account ID",
+            "default": "~",
+            "description": "Use ~ for current account"
+        },
+        {
+            "fieldname": "extension_id",
+            "fieldtype": "Data",
+            "label": "Extension ID",
+            "default": "~",
+            "description": "Use ~ for current extension"
+        }
+    ],
+    "permissions": [
+        {
+            "role": "System Manager",
+            "read": 1,
+            "write": 1,
+            "create": 1
+        }
+    ]
+})
+
+# Insert DocType
+doctype.insert(ignore_permissions=True)
+frappe.db.commit()
+
+print("✅ Created DocType: CRM RingCentral Settings")
+print("   Now run: bench migrate")
+```
+
+#### Console Code to CREATE a Settings Record
+
+```python
+import frappe
+
+# Create/Update CRM RingCentral Settings record
+settings = frappe.get_doc({
+    "doctype": "CRM RingCentral Settings",
+    "enabled": 1,
+    "client_id": "YOUR_CLIENT_ID",
+    "client_secret": "YOUR_CLIENT_SECRET",
+    "account_id": "~",
+    "extension_id": "~"
+})
+settings.insert()
+frappe.db.commit()
+print(f"✅ Created settings record")
+```
+
+#### Verify DocType Exists
+
+```python
+import frappe
+
+# Check if DocType exists
+if frappe.db.exists("DocType", "CRM RingCentral Settings"):
+    print("✅ CRM RingCentral Settings exists")
+    
+    # Get the DocType definition
+    doctype = frappe.get_doc("DocType", "CRM RingCentral Settings")
+    print(f"Module: {doctype.module}")
+    print(f"Single: {doctype.issingle}")
+    print(f"Fields: {len(doctype.fields)}")
+    
+    # Check if settings record exists
+    if frappe.db.exists("CRM RingCentral Settings"):
+        settings = frappe.get_single("CRM RingCentral Settings")
+        print(f"Client ID configured: {bool(settings.client_id)}")
+        print(f"Access Token present: {bool(settings.access_token)}")
+else:
+    print("❌ CRM RingCentral Settings not found - run migrations!")
+```
+
+---
+
+### DocType 2: RingCentral CRM Payload (Regular DocType)
+
+**Location:** `apps/crm/crm/fcrm/doctype/ringcentral_crm_payload/`  
+**Module:** FCRM  
+**Type:** Regular  
+**Naming:** `RCP-{YYYY}-{MM}-{#####}` (e.g., RCP-2025-01-00001)  
+**Purpose:** Store and process webhook payloads from RingCentral for CRM
+
+#### Field Structure
+
+| Field Name | Field Type | Label | Required | Indexed | Description |
+|------------|------------|-------|----------|---------|-------------|
+| `session_id` | Data | Session ID | Yes | Unique | RingCentral session identifier |
+| `uuid` | Data | UUID | No | Unique | RingCentral UUID |
+| `caller_number` | Data | Caller Number | No | Search Index | Phone number of caller |
+| `called_number` | Data | Called Number | No | No | Phone number called |
+| `caller_name` | Data | Caller Name | No | No | Name of caller if available |
+| `call_direction` | Select | Direction | No | No | Options: Inbound, Outbound |
+| `extension_id` | Data | Extension ID | No | No | RingCentral extension |
+| `raw_payload` | Long Text | Raw Payload | Yes | No | Complete webhook JSON |
+| `processed` | Check | Processed | No | No | Processing flag |
+| `processing_status` | Select | Processing Status | Yes | List View | Options: Pending, Processed, Error, Skipped |
+| `processed_at` | Datetime | Processed At | No | No | Processing timestamp |
+| `processing_notes` | Text | Processing Notes | No | No | Notes from processing |
+| `error_message` | Text | Error Message | No | No | Error details if failed |
+| `crm_lead_created` | Link | CRM Lead Created | No | No | Link to created CRM Lead |
+| `crm_call_log_created` | Link | CRM Call Log Created | No | No | Link to created CRM Call Log |
+
+#### Console Code to CREATE the DocType (Table Schema)
+
+```python
+import frappe
+
+# Create RingCentral CRM Payload DocType
+doctype = frappe.get_doc({
+    "doctype": "DocType",
+    "name": "RingCentral CRM Payload",
+    "module": "FCRM",
+    "issingle": 0,
+    "is_submittable": 0,
+    "is_tree": 0,
+    "track_changes": 1,
+    "autoname": "naming_series:",
+    "fields": [
+        # Naming
+        {
+            "fieldname": "naming_series",
+            "fieldtype": "Select",
+            "label": "Series",
+            "options": "RCP-.YYYY.-.MM.-.#####",
+            "default": "RCP-.YYYY.-.MM.-.#####",
+            "reqd": 1
+        },
+        # Section: Call Information
+        {
+            "fieldname": "call_info_section",
+            "fieldtype": "Section Break",
+            "label": "Call Information"
+        },
+        {
+            "fieldname": "session_id",
+            "fieldtype": "Data",
+            "label": "Session ID",
+            "reqd": 1,
+            "unique": 1,
+            "in_list_view": 1,
+            "in_standard_filter": 1
+        },
+        {
+            "fieldname": "uuid",
+            "fieldtype": "Data",
+            "label": "UUID",
+            "unique": 1
+        },
+        {
+            "fieldname": "column_break_1",
+            "fieldtype": "Column Break"
+        },
+        {
+            "fieldname": "caller_number",
+            "fieldtype": "Data",
+            "label": "Caller Number",
+            "search_index": 1,
+            "in_list_view": 1
+        },
+        {
+            "fieldname": "called_number",
+            "fieldtype": "Data",
+            "label": "Called Number"
+        },
+        {
+            "fieldname": "caller_name",
+            "fieldtype": "Data",
+            "label": "Caller Name"
+        },
+        # Section: Call Details
+        {
+            "fieldname": "call_details_section",
+            "fieldtype": "Section Break",
+            "label": "Call Details"
+        },
+        {
+            "fieldname": "call_direction",
+            "fieldtype": "Select",
+            "label": "Direction",
+            "options": "\nInbound\nOutbound",
+            "in_list_view": 1
+        },
+        {
+            "fieldname": "extension_id",
+            "fieldtype": "Data",
+            "label": "Extension ID"
+        },
+        # Section: Payload Data
+        {
+            "fieldname": "payload_section",
+            "fieldtype": "Section Break",
+            "label": "Payload Data"
+        },
+        {
+            "fieldname": "raw_payload",
+            "fieldtype": "Long Text",
+            "label": "Raw Payload",
+            "reqd": 1
+        },
+        # Section: Processing Status
+        {
+            "fieldname": "processing_section",
+            "fieldtype": "Section Break",
+            "label": "Processing Status"
+        },
+        {
+            "fieldname": "processed",
+            "fieldtype": "Check",
+            "label": "Processed",
+            "default": "0"
+        },
+        {
+            "fieldname": "processing_status",
+            "fieldtype": "Select",
+            "label": "Processing Status",
+            "options": "Pending\nProcessed\nError\nSkipped",
+            "default": "Pending",
+            "reqd": 1,
+            "in_list_view": 1,
+            "in_standard_filter": 1
+        },
+        {
+            "fieldname": "column_break_proc",
+            "fieldtype": "Column Break"
+        },
+        {
+            "fieldname": "processed_at",
+            "fieldtype": "Datetime",
+            "label": "Processed At"
+        },
+        {
+            "fieldname": "processing_notes",
+            "fieldtype": "Text",
+            "label": "Processing Notes"
+        },
+        {
+            "fieldname": "error_message",
+            "fieldtype": "Text",
+            "label": "Error Message"
+        },
+        # Section: Created Documents
+        {
+            "fieldname": "created_docs_section",
+            "fieldtype": "Section Break",
+            "label": "Created Documents"
+        },
+        {
+            "fieldname": "crm_lead_created",
+            "fieldtype": "Link",
+            "label": "CRM Lead Created",
+            "options": "CRM Lead"
+        },
+        {
+            "fieldname": "crm_call_log_created",
+            "fieldtype": "Link",
+            "label": "CRM Call Log Created",
+            "options": "CRM Call Log"
+        }
+    ],
+    "permissions": [
+        {
+            "role": "System Manager",
+            "read": 1,
+            "write": 1,
+            "create": 1,
+            "delete": 1
+        },
+        {
+            "role": "CRM Manager",
+            "read": 1,
+            "write": 1,
+            "create": 1
+        }
+    ],
+    "sort_field": "modified",
+    "sort_order": "DESC"
+})
+
+# Insert DocType
+doctype.insert(ignore_permissions=True)
+frappe.db.commit()
+
+print("✅ Created DocType: RingCentral CRM Payload")
+print("   Now run: bench migrate")
+```
+
+#### Console Code to CREATE a Payload Record
+
+```python
+import frappe
+import json
+
+# Create RingCentral CRM Payload record
+payload = frappe.get_doc({
+    "doctype": "RingCentral CRM Payload",
+    "session_id": "test-session-12345",
+    "uuid": "test-uuid-67890",
+    "caller_number": "+15551234567",
+    "called_number": "+15559876543",
+    "caller_name": "John Doe",
+    "call_direction": "Inbound",
+    "extension_id": "101",
+    "raw_payload": json.dumps({
+        "id": "12345",
+        "sessionId": "test-session-12345",
+        "from": {"phoneNumber": "+15551234567", "name": "John Doe"},
+        "to": {"phoneNumber": "+15559876543"},
+        "direction": "Inbound",
+        "duration": 120
+    }),
+    "processing_status": "Pending",
+    "processed": 0
+})
+payload.insert()
+frappe.db.commit()
+print(f"✅ Created: {payload.name}")
+```
+
+#### Query Payloads
+
+```python
+import frappe
+
+# Get all pending payloads
+pending = frappe.get_all(
+    "RingCentral CRM Payload",
+    filters={"processing_status": "Pending"},
+    fields=["name", "session_id", "caller_number", "creation"],
+    order_by="creation desc",
+    limit=10
+)
+
+for p in pending:
+    print(f"{p.name} | {p.caller_number} | {p.creation}")
+
+# Get payloads by phone number
+payloads = frappe.get_all(
+    "RingCentral CRM Payload",
+    filters={"caller_number": "+15551234567"},
+    fields=["name", "processing_status", "crm_lead_created"],
+    limit=5
+)
+
+for p in payloads:
+    print(f"{p.name} | Status: {p.processing_status} | Lead: {p.crm_lead_created}")
+```
+
+---
+
+### DocType 3: RingCentral Helpdesk Payload (Regular DocType)
+
+**Location:** `apps/helpdesk/helpdesk/helpdesk/doctype/ringcentral_helpdesk_payload/`  
+**Module:** Helpdesk  
+**Type:** Regular  
+**Naming:** `RHP-{YYYY}-{MM}-{#####}` (e.g., RHP-2025-01-00001)  
+**Purpose:** Store and process webhook payloads from RingCentral for Helpdesk
+
+#### Field Structure
+
+| Field Name | Field Type | Label | Required | Indexed | Description |
+|------------|------------|-------|----------|---------|-------------|
+| `session_id` | Data | Session ID | Yes | Unique | RingCentral session identifier |
+| `uuid` | Data | UUID | No | Unique | RingCentral UUID |
+| `caller_number` | Data | Caller Number | No | Search Index | Phone number of caller |
+| `called_number` | Data | Called Number | No | No | Phone number called |
+| `caller_name` | Data | Caller Name | No | No | Name of caller if available |
+| `call_direction` | Select | Direction | No | No | Options: Inbound, Outbound |
+| `extension_id` | Data | Extension ID | No | No | RingCentral extension |
+| `raw_payload` | JSON | Raw Payload | Yes | No | Complete webhook JSON |
+| `processed` | Check | Processed | No | No | Processing flag |
+| `processing_status` | Select | Processing Status | Yes | List View | Options: Pending, Processed, Error, Skipped |
+| `processed_at` | Datetime | Processed At | No | No | Processing timestamp |
+| `processing_notes` | Text | Processing Notes | No | No | Notes from processing |
+| `error_message` | Text | Error Message | No | No | Error details if failed |
+| `contact_created` | Link | Contact Created | No | No | Link to created Contact |
+| `helpdesk_call_log_created` | Link | Helpdesk Call Log Created | No | No | Link to created call log |
+| `ticket_created` | Link | Ticket Created | No | No | Link to created HD Ticket |
+
+#### Console Code to CREATE the DocType (Table Schema)
+
+```python
+import frappe
+
+# Create RingCentral Helpdesk Payload DocType
+doctype = frappe.get_doc({
+    "doctype": "DocType",
+    "name": "RingCentral Helpdesk Payload",
+    "module": "Helpdesk",
+    "issingle": 0,
+    "is_submittable": 0,
+    "is_tree": 0,
+    "track_changes": 1,
+    "autoname": "naming_series:",
+    "fields": [
+        # Naming
+        {
+            "fieldname": "naming_series",
+            "fieldtype": "Select",
+            "label": "Series",
+            "options": "RHP-.YYYY.-.MM.-.#####",
+            "default": "RHP-.YYYY.-.MM.-.#####",
+            "reqd": 1
+        },
+        # Section: Call Information
+        {
+            "fieldname": "call_info_section",
+            "fieldtype": "Section Break",
+            "label": "Call Information"
+        },
+        {
+            "fieldname": "session_id",
+            "fieldtype": "Data",
+            "label": "Session ID",
+            "reqd": 1,
+            "unique": 1,
+            "in_list_view": 1,
+            "in_standard_filter": 1
+        },
+        {
+            "fieldname": "uuid",
+            "fieldtype": "Data",
+            "label": "UUID",
+            "unique": 1
+        },
+        {
+            "fieldname": "column_break_1",
+            "fieldtype": "Column Break"
+        },
+        {
+            "fieldname": "caller_number",
+            "fieldtype": "Data",
+            "label": "Caller Number",
+            "search_index": 1,
+            "in_list_view": 1
+        },
+        {
+            "fieldname": "called_number",
+            "fieldtype": "Data",
+            "label": "Called Number"
+        },
+        {
+            "fieldname": "caller_name",
+            "fieldtype": "Data",
+            "label": "Caller Name"
+        },
+        # Section: Call Details
+        {
+            "fieldname": "call_details_section",
+            "fieldtype": "Section Break",
+            "label": "Call Details"
+        },
+        {
+            "fieldname": "call_direction",
+            "fieldtype": "Select",
+            "label": "Direction",
+            "options": "\nInbound\nOutbound",
+            "in_list_view": 1
+        },
+        {
+            "fieldname": "extension_id",
+            "fieldtype": "Data",
+            "label": "Extension ID"
+        },
+        # Section: Payload Data
+        {
+            "fieldname": "payload_section",
+            "fieldtype": "Section Break",
+            "label": "Payload Data"
+        },
+        {
+            "fieldname": "raw_payload",
+            "fieldtype": "JSON",
+            "label": "Raw Payload",
+            "reqd": 1
+        },
+        # Section: Processing Status
+        {
+            "fieldname": "processing_section",
+            "fieldtype": "Section Break",
+            "label": "Processing Status"
+        },
+        {
+            "fieldname": "processed",
+            "fieldtype": "Check",
+            "label": "Processed",
+            "default": "0"
+        },
+        {
+            "fieldname": "processing_status",
+            "fieldtype": "Select",
+            "label": "Processing Status",
+            "options": "Pending\nProcessed\nError\nSkipped",
+            "default": "Pending",
+            "reqd": 1,
+            "in_list_view": 1,
+            "in_standard_filter": 1
+        },
+        {
+            "fieldname": "column_break_proc",
+            "fieldtype": "Column Break"
+        },
+        {
+            "fieldname": "processed_at",
+            "fieldtype": "Datetime",
+            "label": "Processed At"
+        },
+        {
+            "fieldname": "processing_notes",
+            "fieldtype": "Text",
+            "label": "Processing Notes"
+        },
+        {
+            "fieldname": "error_message",
+            "fieldtype": "Text",
+            "label": "Error Message"
+        },
+        # Section: Created Documents
+        {
+            "fieldname": "created_docs_section",
+            "fieldtype": "Section Break",
+            "label": "Created Documents"
+        },
+        {
+            "fieldname": "contact_created",
+            "fieldtype": "Link",
+            "label": "Contact Created",
+            "options": "Contact"
+        },
+        {
+            "fieldname": "column_break_docs",
+            "fieldtype": "Column Break"
+        },
+        {
+            "fieldname": "helpdesk_call_log_created",
+            "fieldtype": "Link",
+            "label": "Helpdesk Call Log Created",
+            "options": "Helpdesk Call Log"
+        },
+        {
+            "fieldname": "ticket_created",
+            "fieldtype": "Link",
+            "label": "Ticket Created",
+            "options": "HD Ticket"
+        }
+    ],
+    "permissions": [
+        {
+            "role": "System Manager",
+            "read": 1,
+            "write": 1,
+            "create": 1,
+            "delete": 1
+        },
+        {
+            "role": "Support Team",
+            "read": 1,
+            "write": 1,
+            "create": 1
+        }
+    ],
+    "sort_field": "modified",
+    "sort_order": "DESC"
+})
+
+# Insert DocType
+doctype.insert(ignore_permissions=True)
+frappe.db.commit()
+
+print("✅ Created DocType: RingCentral Helpdesk Payload")
+print("   Now run: bench migrate")
+```
+
+#### Console Code to CREATE a Payload Record
+
+```python
+import frappe
+import json
+
+# Create RingCentral Helpdesk Payload record
+payload = frappe.get_doc({
+    "doctype": "RingCentral Helpdesk Payload",
+    "session_id": "helpdesk-session-12345",
+    "uuid": "helpdesk-uuid-67890",
+    "caller_number": "+15551234567",
+    "called_number": "+15559876543",
+    "caller_name": "Jane Smith",
+    "call_direction": "Inbound",
+    "extension_id": "102",
+    "raw_payload": {
+        "id": "67890",
+        "sessionId": "helpdesk-session-12345",
+        "from": {"phoneNumber": "+15551234567", "name": "Jane Smith"},
+        "to": {"phoneNumber": "+15559876543"},
+        "direction": "Inbound",
+        "duration": 180
+    },
+    "processing_status": "Pending",
+    "processed": 0
+})
+payload.insert()
+frappe.db.commit()
+print(f"✅ Created: {payload.name}")
+```
+
+#### Query Helpdesk Payloads
+
+```python
+import frappe
+
+# Get recent helpdesk payloads
+recent = frappe.get_all(
+    "RingCentral Helpdesk Payload",
+    filters={"creation": [">=", frappe.utils.add_days(frappe.utils.nowdate(), -7)]},
+    fields=["name", "session_id", "caller_number", "processing_status", "ticket_created"],
+    order_by="creation desc",
+    limit=20
+)
+
+for p in recent:
+    print(f"{p.name} | {p.caller_number} | Status: {p.processing_status} | Ticket: {p.ticket_created or 'None'}")
+
+# Count by status
+for status in ["Pending", "Processed", "Error", "Skipped"]:
+    count = frappe.db.count("RingCentral Helpdesk Payload", {"processing_status": status})
+    print(f"{status}: {count}")
+```
+
+---
+
+### DocType 4: CRM Call Log (Enhanced)
+
+**Location:** `apps/crm/crm/fcrm/doctype/crm_call_log/`  
+**Module:** FCRM  
+**Type:** Regular (Existing, Enhanced with RingCentral fields)  
+**Purpose:** Store CRM call records with recording and transcript
+
+#### New RingCentral Fields Added
+
+| Field Name | Field Type | Label | Description |
+|------------|------------|-------|-------------|
+| `recording_url` | Data | Recording URL | URL to play/download recording |
+| `ringcentral_recording_url` | Data | RingCentral Recording URL | Original API URL for transcript |
+| `transcript` | Long Text | Transcript | Call transcription text (cached) |
+
+#### Complete Call Log Structure (Key Fields)
+
+| Field Name | Field Type | Label | Description |
+|------------|------------|-------|-------------|
+| `id` | Data | Call ID | Unique call identifier |
+| `type` | Select | Type | Incoming/Outgoing |
+| `from` | Data | From | Caller phone number |
+| `to` | Data | To | Called phone number |
+| `status` | Select | Status | Call status |
+| `duration` | Int | Duration | Call duration in seconds |
+| `start_time` | Datetime | Start Time | When call started |
+| `end_time` | Datetime | End Time | When call ended |
+| `caller_name` | Data | Caller Name | Name of caller |
+| `recording_url` | Data | Recording URL | Recording playback URL |
+| `ringcentral_recording_url` | Data | RC Recording URL | RingCentral API URL |
+| `transcript` | Long Text | Transcript | Call transcript (cached) |
+| `note` | Link | Note | Link to FCRM Note |
+| `reference_doctype` | Link | Reference DocType | Lead/Deal/Contact |
+| `reference_docname` | Dynamic Link | Reference Name | Document name |
+
+#### Console Code to ADD RingCentral Fields to Existing DocType
+
+```python
+import frappe
+
+# Get existing CRM Call Log DocType
+doctype = frappe.get_doc("DocType", "CRM Call Log")
+
+# Add RingCentral fields
+new_fields = [
+    {
+        "fieldname": "ringcentral_section",
+        "fieldtype": "Section Break",
+        "label": "RingCentral Integration",
+        "insert_after": "end_time"  # Adjust based on your existing fields
+    },
+    {
+        "fieldname": "recording_url",
+        "fieldtype": "Data",
+        "label": "Recording URL",
+        "insert_after": "ringcentral_section"
+    },
+    {
+        "fieldname": "ringcentral_recording_url",
+        "fieldtype": "Data",
+        "label": "RingCentral Recording URL",
+        "insert_after": "recording_url",
+        "description": "Original RingCentral API URL for transcript"
+    },
+    {
+        "fieldname": "column_break_rc",
+        "fieldtype": "Column Break",
+        "insert_after": "ringcentral_recording_url"
+    },
+    {
+        "fieldname": "transcript",
+        "fieldtype": "Long Text",
+        "label": "Transcript",
+        "insert_after": "column_break_rc",
+        "description": "Cached call transcription"
+    }
+]
+
+# Add fields to DocType
+for field in new_fields:
+    # Check if field already exists
+    existing = [f for f in doctype.fields if f.fieldname == field["fieldname"]]
+    if not existing:
+        doctype.append("fields", field)
+        print(f"   Added field: {field['fieldname']}")
+    else:
+        print(f"   Field already exists: {field['fieldname']}")
+
+# Save DocType
+doctype.save()
+frappe.db.commit()
+
+print("✅ Updated DocType: CRM Call Log")
+print("   Now run: bench migrate")
+```
+
+#### Alternative: Using Custom Fields (Recommended)
+
+```python
+import frappe
+
+# Create Custom Fields for CRM Call Log (safer, no core modification)
+custom_fields = {
+    "CRM Call Log": [
+        {
+            "fieldname": "recording_url",
+            "fieldtype": "Data",
+            "label": "Recording URL",
+            "insert_after": "end_time"
+        },
+        {
+            "fieldname": "ringcentral_recording_url",
+            "fieldtype": "Data",
+            "label": "RingCentral Recording URL",
+            "insert_after": "recording_url"
+        },
+        {
+            "fieldname": "transcript",
+            "fieldtype": "Long Text",
+            "label": "Transcript",
+            "insert_after": "ringcentral_recording_url"
+        }
+    ]
+}
+
+# Create custom fields
+from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
+create_custom_fields(custom_fields)
+frappe.db.commit()
+
+print("✅ Created Custom Fields for CRM Call Log")
+print("   Now run: bench migrate")
+```
+
+#### Console Code to CREATE a Call Log Record
+
+```python
+import frappe
+from datetime import datetime, timedelta
+
+# Create CRM Call Log
+call_log = frappe.get_doc({
+    "doctype": "CRM Call Log",
+    "id": "call-12345",
+    "type": "Incoming",
+    "from": "+15551234567",
+    "to": "+15559876543",
+    "status": "Completed",
+    "duration": 120,
+    "start_time": datetime.now() - timedelta(minutes=5),
+    "end_time": datetime.now() - timedelta(minutes=3),
+    "caller_name": "John Doe",
+    "recording_url": "https://example.com/recording.mp3",
+    "ringcentral_recording_url": "https://platform.ringcentral.com/restapi/v1.0/account/~/recording/12345/content",
+    "transcript": "Agent: Hello, how can I help?\nCustomer: I need support...",
+    "reference_doctype": "CRM Lead",
+    "reference_docname": "LEAD-2025-00001"
+})
+call_log.insert()
+frappe.db.commit()
+print(f"✅ Created: {call_log.name}")
+```
+
+#### Query Call Logs
+
+```python
+import frappe
+
+# Get recent call logs with recordings
+logs_with_recordings = frappe.get_all(
+    "CRM Call Log",
+    filters={
+        "recording_url": ["is", "set"],
+        "creation": [">=", frappe.utils.add_days(frappe.utils.nowdate(), -30)]
+    },
+    fields=["name", "caller_name", "from", "duration", "transcript"],
+    order_by="creation desc",
+    limit=10
+)
+
+for log in logs_with_recordings:
+    has_transcript = "Yes" if log.transcript else "No"
+    print(f"{log.name} | {log.caller_name} | {log.duration}s | Transcript: {has_transcript}")
+
+# Get logs by phone number
+logs_by_phone = frappe.get_all(
+    "CRM Call Log",
+    filters={"from": "+15551234567"},
+    fields=["name", "start_time", "status", "reference_doctype", "reference_docname"],
+    order_by="start_time desc"
+)
+
+for log in logs_by_phone:
+    print(f"{log.name} | {log.start_time} | {log.reference_doctype}: {log.reference_docname}")
+```
+
+---
+
+### DocType 5: Helpdesk Call Log (Enhanced)
+
+**Location:** `apps/helpdesk/helpdesk/helpdesk/doctype/helpdesk_call_log/`  
+**Module:** Helpdesk  
+**Type:** Regular (Existing, Enhanced with RingCentral fields)  
+**Purpose:** Store Helpdesk call records with recording and transcript
+
+#### New RingCentral Fields Added
+
+| Field Name | Field Type | Label | Description |
+|------------|------------|-------|-------------|
+| `ringcentral_recording_url` | Data | RingCentral Recording URL | RingCentral API URL |
+| `recording_file` | Data | Recording File | Local file path after download |
+| `transcript` | Long Text | Transcript | Call transcription text (cached) |
+| `ringcentral_call_id` | Data | RingCentral Call ID | RingCentral call identifier |
+| `ringcentral_session_id` | Data | RingCentral Session ID | RingCentral session identifier |
+| `recording_url` | Data | Recording URL | Generic recording URL |
+
+#### Complete Helpdesk Call Log Structure (Key Fields)
+
+| Field Name | Field Type | Label | Description |
+|------------|------------|-------|-------------|
+| `call_id` | Data | Call ID | Unique call identifier |
+| `type` | Select | Type | Incoming/Outgoing |
+| `from_number` | Data | From Number | Caller phone number |
+| `to_number` | Data | To Number | Called phone number |
+| `status` | Select | Status | Call status |
+| `duration` | Data | Duration | Call duration |
+| `start_time` | Datetime | Start Time | When call started |
+| `end_time` | Datetime | End Time | When call ended |
+| `caller_name` | Data | Caller Name | Name of caller |
+| `ticket` | Link | Ticket | Link to HD Ticket |
+| `contact` | Link | Contact | Link to Contact |
+| `recording_url` | Data | Recording URL | Recording playback URL |
+| `ringcentral_recording_url` | Data | RC Recording URL | RingCentral API URL |
+| `recording_file` | Data | Recording File | Local file path |
+| `transcript` | Long Text | Transcript | Call transcript (cached) |
+| `ringcentral_call_id` | Data | RC Call ID | RingCentral identifier |
+| `ringcentral_session_id` | Data | RC Session ID | RingCentral session |
+
+#### Console Code to ADD RingCentral Fields to Existing DocType
+
+```python
+import frappe
+
+# Get existing Helpdesk Call Log DocType
+doctype = frappe.get_doc("DocType", "Helpdesk Call Log")
+
+# Add RingCentral fields
+new_fields = [
+    {
+        "fieldname": "ringcentral_section",
+        "fieldtype": "Section Break",
+        "label": "RingCentral Integration",
+        "insert_after": "end_time"  # Adjust based on your existing fields
+    },
+    {
+        "fieldname": "recording_url",
+        "fieldtype": "Data",
+        "label": "Recording URL",
+        "insert_after": "ringcentral_section"
+    },
+    {
+        "fieldname": "ringcentral_recording_url",
+        "fieldtype": "Data",
+        "label": "RingCentral Recording URL",
+        "insert_after": "recording_url"
+    },
+    {
+        "fieldname": "recording_file",
+        "fieldtype": "Data",
+        "label": "Recording File",
+        "insert_after": "ringcentral_recording_url",
+        "description": "Local file path after download"
+    },
+    {
+        "fieldname": "column_break_rc",
+        "fieldtype": "Column Break",
+        "insert_after": "recording_file"
+    },
+    {
+        "fieldname": "transcript",
+        "fieldtype": "Long Text",
+        "label": "Transcript",
+        "insert_after": "column_break_rc"
+    },
+    {
+        "fieldname": "ringcentral_call_id",
+        "fieldtype": "Data",
+        "label": "RingCentral Call ID",
+        "insert_after": "transcript"
+    },
+    {
+        "fieldname": "ringcentral_session_id",
+        "fieldtype": "Data",
+        "label": "RingCentral Session ID",
+        "insert_after": "ringcentral_call_id"
+    }
+]
+
+# Add fields to DocType
+for field in new_fields:
+    # Check if field already exists
+    existing = [f for f in doctype.fields if f.fieldname == field["fieldname"]]
+    if not existing:
+        doctype.append("fields", field)
+        print(f"   Added field: {field['fieldname']}")
+    else:
+        print(f"   Field already exists: {field['fieldname']}")
+
+# Save DocType
+doctype.save()
+frappe.db.commit()
+
+print("✅ Updated DocType: Helpdesk Call Log")
+print("   Now run: bench migrate")
+```
+
+#### Alternative: Using Custom Fields (Recommended)
+
+```python
+import frappe
+
+# Create Custom Fields for Helpdesk Call Log (safer, no core modification)
+custom_fields = {
+    "Helpdesk Call Log": [
+        {
+            "fieldname": "recording_url",
+            "fieldtype": "Data",
+            "label": "Recording URL",
+            "insert_after": "end_time"
+        },
+        {
+            "fieldname": "ringcentral_recording_url",
+            "fieldtype": "Data",
+            "label": "RingCentral Recording URL",
+            "insert_after": "recording_url"
+        },
+        {
+            "fieldname": "recording_file",
+            "fieldtype": "Data",
+            "label": "Recording File",
+            "insert_after": "ringcentral_recording_url"
+        },
+        {
+            "fieldname": "transcript",
+            "fieldtype": "Long Text",
+            "label": "Transcript",
+            "insert_after": "recording_file"
+        },
+        {
+            "fieldname": "ringcentral_call_id",
+            "fieldtype": "Data",
+            "label": "RingCentral Call ID",
+            "insert_after": "transcript"
+        },
+        {
+            "fieldname": "ringcentral_session_id",
+            "fieldtype": "Data",
+            "label": "RingCentral Session ID",
+            "insert_after": "ringcentral_call_id"
+        }
+    ]
+}
+
+# Create custom fields
+from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
+create_custom_fields(custom_fields)
+frappe.db.commit()
+
+print("✅ Created Custom Fields for Helpdesk Call Log")
+print("   Now run: bench migrate")
+```
+
+#### Console Code to CREATE a Call Log Record
+
+```python
+import frappe
+from datetime import datetime, timedelta
+
+# Create Helpdesk Call Log
+call_log = frappe.get_doc({
+    "doctype": "Helpdesk Call Log",
+    "call_id": "hd-call-67890",
+    "type": "Incoming",
+    "from_number": "+15551234567",
+    "to_number": "+15559876543",
+    "status": "Completed",
+    "duration": "3:00",
+    "start_time": datetime.now() - timedelta(minutes=10),
+    "end_time": datetime.now() - timedelta(minutes=7),
+    "caller_name": "Jane Smith",
+    "ticket": "HD-TICKET-00001",
+    "contact": "CONT-00001",
+    "recording_url": "https://example.com/recording.mp3",
+    "ringcentral_recording_url": "https://platform.ringcentral.com/restapi/v1.0/account/~/recording/67890/content",
+    "transcript": "Agent: Thank you for calling support.\nCustomer: I have an issue...",
+    "ringcentral_call_id": "rc-67890",
+    "ringcentral_session_id": "session-67890"
+})
+call_log.insert()
+frappe.db.commit()
+print(f"✅ Created: {call_log.name}")
+```
+
+#### Query Helpdesk Call Logs
+
+```python
+import frappe
+
+# Get call logs by ticket
+ticket_logs = frappe.get_all(
+    "Helpdesk Call Log",
+    filters={"ticket": "HD-TICKET-00001"},
+    fields=["name", "type", "caller_name", "duration", "start_time"],
+    order_by="start_time desc"
+)
+
+for log in ticket_logs:
+    print(f"{log.name} | {log.type} | {log.caller_name} | {log.duration}")
+
+# Get logs with recordings
+logs_with_recordings = frappe.get_all(
+    "Helpdesk Call Log",
+    filters={
+        "recording_url": ["is", "set"],
+        "creation": [">=", frappe.utils.add_days(frappe.utils.nowdate(), -7)]
+    },
+    fields=["name", "ticket", "recording_file", "transcript"],
+    limit=10
+)
+
+for log in logs_with_recordings:
+    has_file = "Yes" if log.recording_file else "No"
+    has_transcript = "Yes" if log.transcript else "No"
+    print(f"{log.name} | Ticket: {log.ticket} | File: {has_file} | Transcript: {has_transcript}")
+```
+
+---
+
+### DocType 6: HD Ticket (Enhanced)
+
+**Location:** `apps/helpdesk/helpdesk/helpdesk/doctype/hd_ticket/`  
+**Module:** Helpdesk  
+**Type:** Regular (Existing, Enhanced with phone field)  
+**Purpose:** Support tickets with phone number for call log linking
+
+#### New RingCentral Field Added
+
+| Field Name | Field Type | Label | Fetch From | Description |
+|------------|------------|-------|------------|-------------|
+| `contact_mobile` | Data | Contact Mobile | Contact.mobile_no | Customer phone number (for call linking) |
+
+#### Key HD Ticket Fields (Relevant to RingCentral)
+
+| Field Name | Field Type | Label | Description |
+|------------|------------|-------|-------------|
+| `name` | Data | ID | Ticket ID (auto-generated) |
+| `subject` | Data | Subject | Ticket subject |
+| `raised_by` | Data | Raised By | Customer email |
+| `contact` | Link | Contact | Link to Contact |
+| `contact_mobile` | Data | Contact Mobile | Customer phone (fetched from Contact) |
+| `status` | Link | Status | Ticket status |
+| `priority` | Link | Priority | Ticket priority |
+
+#### Console Code to ADD contact_mobile Field to Existing DocType
+
+```python
+import frappe
+
+# Get existing HD Ticket DocType
+doctype = frappe.get_doc("DocType", "HD Ticket")
+
+# Add contact_mobile field
+new_field = {
+    "fieldname": "contact_mobile",
+    "fieldtype": "Data",
+    "label": "Contact Mobile",
+    "fetch_from": "contact.mobile_no",
+    "insert_after": "contact",  # Adjust based on your existing fields
+    "description": "Customer phone number for call log linking"
+}
+
+# Check if field already exists
+existing = [f for f in doctype.fields if f.fieldname == "contact_mobile"]
+if not existing:
+    doctype.append("fields", new_field)
+    print("   Added field: contact_mobile")
+else:
+    print("   Field already exists: contact_mobile")
+
+# Save DocType
+doctype.save()
+frappe.db.commit()
+
+print("✅ Updated DocType: HD Ticket")
+print("   Now run: bench migrate")
+```
+
+#### Alternative: Using Custom Field (Recommended)
+
+```python
+import frappe
+
+# Create Custom Field for HD Ticket (safer, no core modification)
+custom_fields = {
+    "HD Ticket": [
+        {
+            "fieldname": "contact_mobile",
+            "fieldtype": "Data",
+            "label": "Contact Mobile",
+            "fetch_from": "contact.mobile_no",
+            "insert_after": "contact"
+        }
+    ]
+}
+
+# Create custom field
+from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
+create_custom_fields(custom_fields)
+frappe.db.commit()
+
+print("✅ Created Custom Field for HD Ticket")
+print("   Now run: bench migrate")
+```
+
+#### Console Code to UPDATE a Ticket with Phone
+
+```python
+import frappe
+
+# Get ticket and update phone
+ticket = frappe.get_doc("HD Ticket", "HD-TICKET-00001")
+ticket.contact_mobile = "+15551234567"
+ticket.save()
+frappe.db.commit()
+print(f"✅ Updated {ticket.name} with phone: {ticket.contact_mobile}")
+
+# This will trigger auto-merge of call logs with same phone number
+```
+
+#### Query Tickets by Phone
+
+```python
+import frappe
+
+# Find tickets by phone number
+tickets_by_phone = frappe.get_all(
+    "HD Ticket",
+    filters={"contact_mobile": "+15551234567"},
+    fields=["name", "subject", "status", "raised_by"],
+    order_by="creation desc"
+)
+
+for ticket in tickets_by_phone:
+    print(f"{ticket.name} | {ticket.subject} | {ticket.status}")
+
+# Find tickets with call logs
+tickets_with_calls = frappe.db.sql("""
+    SELECT 
+        t.name,
+        t.subject,
+        t.contact_mobile,
+        COUNT(cl.name) as call_count
+    FROM `tabHD Ticket` t
+    LEFT JOIN `tabHelpdesk Call Log` cl ON cl.ticket = t.name
+    WHERE t.contact_mobile IS NOT NULL
+    GROUP BY t.name
+    HAVING call_count > 0
+    ORDER BY call_count DESC
+    LIMIT 10
+""", as_dict=True)
+
+for ticket in tickets_with_calls:
+    print(f"{ticket.name} | {ticket.subject} | {ticket.call_count} calls")
+```
+
+---
+
+### DocType 7: Unified Call Log (Regular DocType)
+
+**Location:** `apps/erpnext/erpnext/telephony/doctype/unified_call_log/`  
+**Module:** Telephony (ERPNext)  
+**Type:** Regular  
+**Naming:** `UCL-{YYYY}-{MM}-{#####}` (e.g., UCL-2025-01-00001)  
+**Purpose:** Consolidated view of all calls from CRM and Helpdesk
+
+#### Field Structure
+
+| Field Name | Field Type | Label | Required | Description |
+|------------|------------|-------|----------|-------------|
+| `call_id` | Data | Call ID | No | Unique call identifier |
+| `source_doctype` | Select | Source | Yes | Options: CRM Call Log, Helpdesk Call Log |
+| `source_name` | Data | Source Document | No | Original call log name |
+| `telephony_medium` | Select | Telephony Medium | No | Options: RingCentral, Twilio, Exotel, Manual, Other |
+| `type` | Select | Type | Yes | Options: Incoming, Outgoing |
+| `from_number` | Data | From | No | Caller's phone number (indexed) |
+| `to_number` | Data | To | No | Called phone number |
+| `duration` | Data | Duration | No | Call duration (formatted) |
+| `status` | Select | Status | No | Options: Initiated, Ringing, In Progress, Completed, Failed, Busy, No Answer, Queued, Canceled |
+| `start_time` | Datetime | Start Time | No | Call start timestamp |
+| `end_time` | Datetime | End Time | No | Call end timestamp |
+| `recording_url` | Data | Recording URL | No | Link to recording |
+| `caller_name` | Data | Caller Name | No | Name of caller |
+| `reference_doctype` | Link | Reference DocType | No | Link to DocType (Lead/Ticket) |
+| `reference_name` | Dynamic Link | Reference Name | No | Document name |
+| `customer` | Link | Customer | No | Link to Customer |
+| `caller` | Link | Caller (User) | No | User who made call (outgoing) |
+| `receiver` | Link | Call Received By | No | User who received call (incoming) |
+| `note` | Text | Note | No | Call notes |
+| `summary` | Text Editor | Call Summary | No | Summary of conversation |
+
+#### Console Code to CREATE the DocType (Table Schema)
+
+```python
+import frappe
+
+# Create Unified Call Log DocType
+doctype = frappe.get_doc({
+    "doctype": "DocType",
+    "name": "Unified Call Log",
+    "module": "Telephony",
+    "issingle": 0,
+    "is_submittable": 0,
+    "is_tree": 0,
+    "track_changes": 1,
+    "autoname": "naming_series:",
+    "title_field": "caller_name",
+    "fields": [
+        # Naming
+        {
+            "fieldname": "naming_series",
+            "fieldtype": "Select",
+            "label": "Series",
+            "options": "UCL-.YYYY.-.MM.-.#####",
+            "default": "UCL-.YYYY.-.MM.-.#####",
+            "reqd": 1
+        },
+        # Section: Source Information
+        {
+            "fieldname": "source_section",
+            "fieldtype": "Section Break",
+            "label": "Source Information"
+        },
+        {
+            "fieldname": "call_id",
+            "fieldtype": "Data",
+            "label": "Call ID",
+            "unique": 1
+        },
+        {
+            "fieldname": "source_doctype",
+            "fieldtype": "Select",
+            "label": "Source",
+            "options": "CRM Call Log\nHelpdesk Call Log",
+            "reqd": 1,
+            "in_list_view": 1,
+            "in_standard_filter": 1
+        },
+        {
+            "fieldname": "source_name",
+            "fieldtype": "Data",
+            "label": "Source Document",
+            "description": "Original call log document name"
+        },
+        {
+            "fieldname": "column_break_source",
+            "fieldtype": "Column Break"
+        },
+        {
+            "fieldname": "telephony_medium",
+            "fieldtype": "Select",
+            "label": "Telephony Medium",
+            "options": "\nRingCentral\nTwilio\nExotel\nManual\nOther",
+            "default": "RingCentral"
+        },
+        # Section: Call Information
+        {
+            "fieldname": "call_info_section",
+            "fieldtype": "Section Break",
+            "label": "Call Information"
+        },
+        {
+            "fieldname": "type",
+            "fieldtype": "Select",
+            "label": "Type",
+            "options": "Incoming\nOutgoing",
+            "reqd": 1,
+            "in_list_view": 1,
+            "in_standard_filter": 1
+        },
+        {
+            "fieldname": "from_number",
+            "fieldtype": "Data",
+            "label": "From",
+            "search_index": 1,
+            "in_list_view": 1
+        },
+        {
+            "fieldname": "to_number",
+            "fieldtype": "Data",
+            "label": "To",
+            "in_list_view": 1
+        },
+        {
+            "fieldname": "column_break_call",
+            "fieldtype": "Column Break"
+        },
+        {
+            "fieldname": "duration",
+            "fieldtype": "Data",
+            "label": "Duration"
+        },
+        {
+            "fieldname": "status",
+            "fieldtype": "Select",
+            "label": "Status",
+            "options": "\nInitiated\nRinging\nIn Progress\nCompleted\nFailed\nBusy\nNo Answer\nQueued\nCanceled",
+            "default": "Completed",
+            "in_list_view": 1
+        },
+        # Section: Timestamps
+        {
+            "fieldname": "time_section",
+            "fieldtype": "Section Break",
+            "label": "Time Information"
+        },
+        {
+            "fieldname": "start_time",
+            "fieldtype": "Datetime",
+            "label": "Start Time"
+        },
+        {
+            "fieldname": "column_break_time",
+            "fieldtype": "Column Break"
+        },
+        {
+            "fieldname": "end_time",
+            "fieldtype": "Datetime",
+            "label": "End Time"
+        },
+        # Section: Recording & Transcript
+        {
+            "fieldname": "recording_section",
+            "fieldtype": "Section Break",
+            "label": "Recording & Transcript",
+            "collapsible": 1
+        },
+        {
+            "fieldname": "recording_url",
+            "fieldtype": "Data",
+            "label": "Recording URL"
+        },
+        # Section: Participants
+        {
+            "fieldname": "participants_section",
+            "fieldtype": "Section Break",
+            "label": "Participants"
+        },
+        {
+            "fieldname": "caller_name",
+            "fieldtype": "Data",
+            "label": "Caller Name"
+        },
+        {
+            "fieldname": "customer",
+            "fieldtype": "Link",
+            "label": "Customer",
+            "options": "Customer"
+        },
+        {
+            "fieldname": "column_break_participants",
+            "fieldtype": "Column Break"
+        },
+        {
+            "fieldname": "caller",
+            "fieldtype": "Link",
+            "label": "Caller (User)",
+            "options": "User",
+            "description": "User who made the call (outgoing)"
+        },
+        {
+            "fieldname": "receiver",
+            "fieldtype": "Link",
+            "label": "Call Received By",
+            "options": "User",
+            "description": "User who received the call (incoming)"
+        },
+        # Section: Reference
+        {
+            "fieldname": "reference_section",
+            "fieldtype": "Section Break",
+            "label": "Linked Document"
+        },
+        {
+            "fieldname": "reference_doctype",
+            "fieldtype": "Link",
+            "label": "Reference DocType",
+            "options": "DocType"
+        },
+        {
+            "fieldname": "reference_name",
+            "fieldtype": "Dynamic Link",
+            "label": "Reference Name",
+            "options": "reference_doctype"
+        },
+        # Section: Notes
+        {
+            "fieldname": "notes_section",
+            "fieldtype": "Section Break",
+            "label": "Notes"
+        },
+        {
+            "fieldname": "note",
+            "fieldtype": "Text",
+            "label": "Note"
+        },
+        {
+            "fieldname": "summary",
+            "fieldtype": "Text Editor",
+            "label": "Call Summary"
+        }
+    ],
+    "permissions": [
+        {
+            "role": "System Manager",
+            "read": 1,
+            "write": 1,
+            "create": 1,
+            "delete": 1
+        },
+        {
+            "role": "Sales User",
+            "read": 1
+        },
+        {
+            "role": "Support Team",
+            "read": 1
+        }
+    ],
+    "sort_field": "modified",
+    "sort_order": "DESC",
+    "index_web_pages_for_search": 1,
+    "search_fields": "caller_name,from_number,to_number"
+})
+
+# Insert DocType
+doctype.insert(ignore_permissions=True)
+frappe.db.commit()
+
+print("✅ Created DocType: Unified Call Log")
+print("   Now run: bench migrate")
+```
+
+#### Console Code to CREATE a Unified Call Log Record
+
+```python
+import frappe
+from datetime import datetime, timedelta
+
+# Create Unified Call Log
+unified_log = frappe.get_doc({
+    "doctype": "Unified Call Log",
+    "call_id": "unified-12345",
+    "source_doctype": "CRM Call Log",
+    "source_name": "CRM-CALL-00001",
+    "telephony_medium": "RingCentral",
+    "type": "Incoming",
+    "from_number": "+15551234567",
+    "to_number": "+15559876543",
+    "duration": "2m 30s",
+    "status": "Completed",
+    "start_time": datetime.now() - timedelta(minutes=5),
+    "end_time": datetime.now() - timedelta(minutes=2, seconds=30),
+    "recording_url": "https://example.com/recording.mp3",
+    "caller_name": "John Doe",
+    "reference_doctype": "CRM Lead",
+    "reference_name": "LEAD-2025-00001",
+    "note": "Customer inquiry about product pricing",
+    "summary": "Customer called to inquire about enterprise pricing..."
+})
+unified_log.insert()
+frappe.db.commit()
+print(f"✅ Created: {unified_log.name}")
+```
+
+#### Sync CRM Call Logs to Unified
+
+```python
+import frappe
+from erpnext.telephony.doctype.unified_call_log.unified_call_log import sync_crm_call_log
+
+# Sync single CRM call log
+result = sync_crm_call_log("CRM-CALL-00001")
+print(f"✅ Synced to: {result}")
+
+# Sync all CRM call logs (bulk)
+from erpnext.telephony.doctype.unified_call_log.unified_call_log import sync_all_crm_call_logs
+sync_all_crm_call_logs()
+print("✅ All CRM call logs synced")
+```
+
+#### Sync Helpdesk Call Logs to Unified
+
+```python
+import frappe
+from erpnext.telephony.doctype.unified_call_log.unified_call_log import sync_helpdesk_call_log
+
+# Sync single Helpdesk call log
+result = sync_helpdesk_call_log("HD-CALL-00001")
+print(f"✅ Synced to: {result}")
+
+# Sync all Helpdesk call logs (bulk)
+from erpnext.telephony.doctype.unified_call_log.unified_call_log import sync_all_helpdesk_call_logs
+sync_all_helpdesk_call_logs()
+print("✅ All Helpdesk call logs synced")
+```
+
+#### Query Unified Call Logs
+
+```python
+import frappe
+
+# Get all calls from last 7 days
+recent_calls = frappe.get_all(
+    "Unified Call Log",
+    filters={"creation": [">=", frappe.utils.add_days(frappe.utils.nowdate(), -7)]},
+    fields=["name", "source_doctype", "from_number", "to_number", "duration", "status"],
+    order_by="creation desc",
+    limit=20
+)
+
+for call in recent_calls:
+    print(f"{call.name} | {call.source_doctype} | {call.from_number} → {call.to_number} | {call.duration}")
+
+# Get calls by source
+crm_calls = frappe.db.count("Unified Call Log", {"source_doctype": "CRM Call Log"})
+helpdesk_calls = frappe.db.count("Unified Call Log", {"source_doctype": "Helpdesk Call Log"})
+print(f"CRM Calls: {crm_calls} | Helpdesk Calls: {helpdesk_calls}")
+
+# Get calls by phone number
+calls_by_phone = frappe.get_all(
+    "Unified Call Log",
+    filters={"from_number": "+15551234567"},
+    fields=["name", "source_doctype", "reference_doctype", "reference_name", "caller_name"],
+    order_by="start_time desc"
+)
+
+for call in calls_by_phone:
+    print(f"{call.name} | {call.source_doctype} | {call.reference_doctype}: {call.reference_name}")
+```
+
+---
+
+### Complete DocType Summary
+
+| # | DocType | Module | Type | Tables Created | Purpose |
+|---|---------|--------|------|----------------|---------|
+| 1 | CRM RingCentral Settings | FCRM | Single | `tabCRM RingCentral Settings` | OAuth credentials |
+| 2 | RingCentral CRM Payload | FCRM | Regular | `tabRingCentral CRM Payload` | CRM webhook processing |
+| 3 | RingCentral Helpdesk Payload | Helpdesk | Regular | `tabRingCentral Helpdesk Payload` | Helpdesk webhook processing |
+| 4 | CRM Call Log | FCRM | Enhanced | `tabCRM Call Log` | CRM call records |
+| 5 | Helpdesk Call Log | Helpdesk | Enhanced | `tabHelpdesk Call Log` | Helpdesk call records |
+| 6 | HD Ticket | Helpdesk | Enhanced | `tabHD Ticket` | Support tickets |
+| 7 | Unified Call Log | Telephony | Regular | `tabUnified Call Log` | Consolidated call view |
+
+---
+
+### Verify All DocTypes After Migration
+
+```python
+import frappe
+
+# List of all RingCentral-related DocTypes
+doctypes = [
+    "CRM RingCentral Settings",
+    "RingCentral CRM Payload",
+    "RingCentral Helpdesk Payload",
+    "CRM Call Log",
+    "Helpdesk Call Log",
+    "HD Ticket",
+    "Unified Call Log"
+]
+
+print("=" * 80)
+print("RINGCENTRAL DOCTYPES VERIFICATION")
+print("=" * 80)
+
+for doctype in doctypes:
+    exists = frappe.db.exists("DocType", doctype)
+    
+    if exists:
+        doc = frappe.get_doc("DocType", doctype)
+        table_name = f"tab{doctype}"
+        table_exists = frappe.db.table_exists(table_name)
+        
+        print(f"✅ {doctype}")
+        print(f"   Module: {doc.module}")
+        print(f"   Type: {'Single' if doc.issingle else 'Regular'}")
+        print(f"   Table: {table_name} {'(exists)' if table_exists else '(NOT FOUND!)'}")
+        print(f"   Fields: {len(doc.fields)}")
+        
+        # Count records for regular DocTypes
+        if not doc.issingle and table_exists:
+            count = frappe.db.count(doctype)
+            print(f"   Records: {count}")
+    else:
+        print(f"❌ {doctype} - NOT FOUND! Run migrations.")
+    
+    print()
+
+print("=" * 80)
+```
+
+---
+
+### Database Schema Verification
+
+```python
+import frappe
+
+# Check specific table structures
+tables = {
+    "tabRingCentral CRM Payload": ["session_id", "caller_number", "raw_payload", "processing_status"],
+    "tabRingCentral Helpdesk Payload": ["session_id", "caller_number", "raw_payload", "ticket_created"],
+    "tabCRM Call Log": ["recording_url", "ringcentral_recording_url", "transcript"],
+    "tabHelpdesk Call Log": ["ringcentral_recording_url", "transcript", "ringcentral_call_id"],
+    "tabHD Ticket": ["contact_mobile"],
+    "tabUnified Call Log": ["source_doctype", "source_name", "telephony_medium"]
+}
+
+print("DATABASE SCHEMA VERIFICATION")
+print("=" * 80)
+
+for table, fields in tables.items():
+    print(f"\nTable: {table}")
+    
+    # Check if table exists
+    if not frappe.db.table_exists(table):
+        print(f"   ❌ Table does not exist!")
+        continue
+    
+    # Check each field
+    for field in fields:
+        column_exists = frappe.db.sql(f"""
+            SELECT COUNT(*) as count
+            FROM information_schema.columns
+            WHERE table_schema = DATABASE()
+            AND table_name = '{table}'
+            AND column_name = '{field}'
+        """, as_dict=True)[0].count > 0
+        
+        status = "✅" if column_exists else "❌"
+        print(f"   {status} Field: {field}")
+
+print("\n" + "=" * 80)
+```
+
+---
+
+### Bulk Operations Console Commands
+
+#### Delete All Test Payloads
+
+```python
+import frappe
+
+# Delete all test CRM payloads
+test_crm_payloads = frappe.get_all(
+    "RingCentral CRM Payload",
+    filters={"session_id": ["like", "test-%"]},
+    pluck="name"
+)
+
+for name in test_crm_payloads:
+    frappe.delete_doc("RingCentral CRM Payload", name, force=True)
+    print(f"Deleted: {name}")
+
+frappe.db.commit()
+print(f"✅ Deleted {len(test_crm_payloads)} test CRM payloads")
+
+# Delete all test Helpdesk payloads
+test_hd_payloads = frappe.get_all(
+    "RingCentral Helpdesk Payload",
+    filters={"session_id": ["like", "test-%"]},
+    pluck="name"
+)
+
+for name in test_hd_payloads:
+    frappe.delete_doc("RingCentral Helpdesk Payload", name, force=True)
+    print(f"Deleted: {name}")
+
+frappe.db.commit()
+print(f"✅ Deleted {len(test_hd_payloads)} test Helpdesk payloads")
+```
+
+#### Reprocess Failed Payloads
+
+```python
+import frappe
+
+# Reprocess failed CRM payloads
+failed_crm = frappe.get_all(
+    "RingCentral CRM Payload",
+    filters={"processing_status": "Error"},
+    pluck="name"
+)
+
+for payload_name in failed_crm:
+    payload = frappe.get_doc("RingCentral CRM Payload", payload_name)
+    payload.processing_status = "Pending"
+    payload.processed = 0
+    payload.error_message = None
+    payload.save()
+    print(f"Reset for reprocessing: {payload_name}")
+
+frappe.db.commit()
+print(f"✅ Reset {len(failed_crm)} failed CRM payloads")
+
+# Reprocess failed Helpdesk payloads
+failed_hd = frappe.get_all(
+    "RingCentral Helpdesk Payload",
+    filters={"processing_status": "Error"},
+    pluck="name"
+)
+
+for payload_name in failed_hd:
+    payload = frappe.get_doc("RingCentral Helpdesk Payload", payload_name)
+    payload.processing_status = "Pending"
+    payload.processed = 0
+    payload.error_message = None
+    payload.save()
+    print(f"Reset for reprocessing: {payload_name}")
+
+frappe.db.commit()
+print(f"✅ Reset {len(failed_hd)} failed Helpdesk payloads")
+```
+
+---
+
+### Statistics and Reporting
+
+```python
+import frappe
+from frappe.utils import add_days, nowdate
+
+# Get RingCentral statistics
+print("=" * 80)
+print("RINGCENTRAL INTEGRATION STATISTICS")
+print("=" * 80)
+
+yesterday = add_days(nowdate(), -1)
+last_week = add_days(nowdate(), -7)
+last_month = add_days(nowdate(), -30)
+
+# CRM Statistics
+print("\n📞 CRM CALL LOGS:")
+crm_total = frappe.db.count("CRM Call Log")
+crm_today = frappe.db.count("CRM Call Log", {"creation": [">=", nowdate()]})
+crm_week = frappe.db.count("CRM Call Log", {"creation": [">=", last_week]})
+crm_with_recording = frappe.db.count("CRM Call Log", {"recording_url": ["is", "set"]})
+crm_with_transcript = frappe.db.count("CRM Call Log", {"transcript": ["is", "set"]})
+
+print(f"   Total: {crm_total}")
+print(f"   Today: {crm_today}")
+print(f"   Last 7 days: {crm_week}")
+print(f"   With Recording: {crm_with_recording}")
+print(f"   With Transcript: {crm_with_transcript}")
+
+# Helpdesk Statistics
+print("\n🎫 HELPDESK CALL LOGS:")
+hd_total = frappe.db.count("Helpdesk Call Log")
+hd_today = frappe.db.count("Helpdesk Call Log", {"creation": [">=", nowdate()]})
+hd_week = frappe.db.count("Helpdesk Call Log", {"creation": [">=", last_week]})
+hd_with_recording = frappe.db.count("Helpdesk Call Log", {"recording_url": ["is", "set"]})
+hd_with_transcript = frappe.db.count("Helpdesk Call Log", {"transcript": ["is", "set"]})
+
+print(f"   Total: {hd_total}")
+print(f"   Today: {hd_today}")
+print(f"   Last 7 days: {hd_week}")
+print(f"   With Recording: {hd_with_recording}")
+print(f"   With Transcript: {hd_with_transcript}")
+
+# Payload Statistics
+print("\n📦 WEBHOOK PAYLOADS:")
+crm_payloads = frappe.db.count("RingCentral CRM Payload")
+hd_payloads = frappe.db.count("RingCentral Helpdesk Payload")
+
+for status in ["Pending", "Processed", "Error", "Skipped"]:
+    crm_count = frappe.db.count("RingCentral CRM Payload", {"processing_status": status})
+    hd_count = frappe.db.count("RingCentral Helpdesk Payload", {"processing_status": status})
+    print(f"   {status}: CRM={crm_count}, Helpdesk={hd_count}")
+
+# Unified Call Logs
+print("\n📊 UNIFIED CALL LOGS:")
+unified_total = frappe.db.count("Unified Call Log")
+unified_crm = frappe.db.count("Unified Call Log", {"source_doctype": "CRM Call Log"})
+unified_hd = frappe.db.count("Unified Call Log", {"source_doctype": "Helpdesk Call Log"})
+
+print(f"   Total: {unified_total}")
+print(f"   From CRM: {unified_crm}")
+print(f"   From Helpdesk: {unified_hd}")
+
+print("\n" + "=" * 80)
+```
+
+---
+
 ### Authentication Architecture
 
 **OAuth 2.0 Flow:**
